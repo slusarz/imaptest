@@ -1,0 +1,71 @@
+name: Build static version of imaptest
+
+on:
+  pull_request:
+  push:
+    paths:
+      - 'src/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Create release-artifacts
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout imaptest
+        uses: actions/checkout@v4
+        with:
+          path: imaptest
+      - name: Checkout dovecot
+        uses: actions/checkout@v4
+        with:
+          repository: dovecot/core
+          path: core 
+      - name: Build dovecot libraries
+        working-directory: ${{ github.workspace }}/core
+        run: |
+          ./autogen.sh
+          ./configure --without-shared-libs
+      - name: Build imaptest
+        working-directory: ${{ github.workspace }}/imaptest
+        run: |
+          ./autogen.sh
+          ./configure --with-dovecot=../core --enable-static
+      - name: Upload Artifact
+        #if: ${{ github.repository == 'dovecot/imaptest' && github.ref == 'refs/heads/main' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: imaptest
+          path: imaptest/src
+  publish:
+    needs: build
+    #if: ${{ github.repository == 'dovecot/imaptest' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: imaptest
+          path: ./ 
+      - name: TAR/GZ imaptest
+        run: |
+          tar czfv imaptest.tgz imaptest
+      - name: Generate SHA256 checksum
+        run: |
+          sha256sum imaptest.tgz > SHA256SUMS.txt
+      - name: List files
+        run: ls -rl
+      - name: Update latest Release
+        uses: andelf/nightly-release@main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: latest
+          name: 'ImapTest Latest Release'
+          draft: false
+          body: |
+            This is a static binary of imaptest (built on Ubuntu 22.04).
+            This should work on any modern Linux machine using libc.
+          files: |
+            ./SHA256SUMS.txt
+            ./imaptest.tgz
