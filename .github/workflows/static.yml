@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Create release-artifacts
+    name: Build
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout imaptest
@@ -21,6 +21,10 @@ jobs:
         with:
           repository: dovecot/core
           path: core 
+      - name: Install necessary dev packages (missing from GH Actions image)
+        run: |
+          apt update
+          apt install -y gettext zlib1g-dev
       - name: Build dovecot libraries
         working-directory: ${{ github.workspace }}/core
         run: |
@@ -40,6 +44,7 @@ jobs:
   publish:
     needs: build
     #if: ${{ github.repository == 'dovecot/imaptest' && github.ref == 'refs/heads/main' }}
+    name: Publish
     runs-on: ubuntu-22.04
     steps:
       - name: Download artifact
