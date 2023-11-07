@@ -21,20 +21,21 @@ jobs:
         with:
           repository: dovecot/core
           path: core 
-      - name: Install necessary dev packages (missing from GH Actions image)
+      - name: Install gettext (missing from GH Actions image)
         run: |
-          sudo apt update
-          sudo apt install -y gettext zlib1g-dev
+          sudo apt install -y gettext
       - name: Build dovecot libraries
         working-directory: ${{ github.workspace }}/core
         run: |
           ./autogen.sh
           ./configure --without-shared-libs
+          make
       - name: Build imaptest
         working-directory: ${{ github.workspace }}/imaptest
         run: |
           ./autogen.sh
           ./configure --with-dovecot=../core --enable-static
+          make
       - name: Upload Artifact
         #if: ${{ github.repository == 'dovecot/imaptest' && github.ref == 'refs/heads/main' }}
         uses: actions/upload-artifact@v3
