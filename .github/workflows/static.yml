@@ -23,8 +23,8 @@ jobs:
           path: core 
       - name: Install necessary dev packages (missing from GH Actions image)
         run: |
-          apt update
-          apt install -y gettext zlib1g-dev
+          sudo apt update
+          sudo apt install -y gettext zlib1g-dev
       - name: Build dovecot libraries
         working-directory: ${{ github.workspace }}/core
         run: |
