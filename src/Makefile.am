@@ -115,3 +115,22 @@ EXTRA_DIST = \
 	tests/thread8 \
 	tests/thread8.mbox \
 	tests/thread.mbox
+
+check_PROGRAMS = test-test-parser
+
+test_test_parser_SOURCES = test-test-parser.c
+test_test_parser_CFLAGS = $(AM_CPPFLAGS)
+
+# Try to find libtest.la relative to libdovecot.la
+LIBDOVECOT_DIR = $(dir $(word 1, $(LIBDOVECOT)))
+LIBTEST_LA = $(LIBDOVECOT_DIR)../lib-test/libtest.la
+
+test_test_parser_LDADD = \
+	$(LIBTEST_LA) \
+	$(LIBDOVECOT) \
+	$(LIBDOVECOT_COMPRESS) \
+	$(LIBDOVECOT_OPENSSL) \
+	$(LIBDOVECOT_TEST_LIBS) \
+	-lm
+
+TESTS = test-test-parser

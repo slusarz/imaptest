@@ -628,7 +628,7 @@ test_parse_command_line(struct test_parser *parser, struct test *test,
 			return FALSE;
 		}
 		if (array_count(&group->commands) > 0 &&
-		    group->connection_idx != connection_idx) {
+		    group->connection_idx != connection_idx-1) {
 			*error_r = "All pipelined commands must use the same connection";
 			return FALSE;
 		}
