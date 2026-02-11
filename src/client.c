@@ -30,6 +30,7 @@
 int clients_count = 0;
 unsigned int total_disconnects = 0;
 ARRAY_TYPE(client) clients;
+ARRAY_TYPE(client) active_clients;
 ARRAY(unsigned int) stalled_clients;
 bool stalled = FALSE, disconnect_clients = FALSE, no_new_clients = FALSE;
 
@@ -279,6 +280,12 @@ int client_init(struct client *client, unsigned int idx,
 	clients_count++;
 	user_add_client(user, client);
         array_idx_set(&clients, idx, &client);
+
+	if (!array_is_created(&active_clients))
+		i_array_init(&active_clients, CLIENTS_COUNT);
+	array_append(&active_clients, &client, 1);
+	client->active_idx = array_count(&active_clients) - 1;
+
 	return 0;
 }
 
@@ -329,6 +336,22 @@ bool client_unref(struct client *client, bool reconnect)
 	if (--clients_count == 0)
 		stalled = FALSE;
 	array_idx_clear(&clients, idx);
+
+	if (array_is_created(&active_clients)) {
+		struct client **last_p, *last;
+		unsigned int count = array_count(&active_clients);
+
+		i_assert(client->active_idx < count);
+		/* Replace removed client with the last one in the array */
+		if (client->active_idx != count - 1) {
+			last_p = array_idx_modifiable(&active_clients, count - 1);
+			last = *last_p;
+			array_idx_set(&active_clients, client->active_idx, &last);
+			last->active_idx = client->active_idx;
+		}
+		array_delete(&active_clients, count - 1, 1);
+	}
+
 	if (client_min_free_idx > idx)
 		client_min_free_idx = idx;
 
@@ -387,6 +410,12 @@ unsigned int clients_get_random_idx(void)
 	struct client *const *c;
 	unsigned int i, idx, count;
 
+	if (array_is_created(&active_clients)) {
+		c = array_get(&active_clients, &count);
+		if (count > 0)
+			return c[i_rand_limit(count)]->idx;
+	}
+
 	/* first try randomly */
 	c = array_get(&clients, &count);
 	for (i = 0; i < 100; i++) {
@@ -405,6 +434,7 @@ unsigned int clients_get_random_idx(void)
 
 void clients_init(void)
 {
+	i_array_init(&active_clients, CLIENTS_COUNT);
 	i_array_init(&stalled_clients, CLIENTS_COUNT);
 }
 
@@ -412,5 +442,7 @@ void clients_deinit(void)
 {
 	if (ssl_ctx != NULL)
 		ssl_iostream_context_unref(&ssl_ctx);
+	if (array_is_created(&active_clients))
+		array_free(&active_clients);
 	array_free(&stalled_clients);
 }
