@@ -645,7 +645,7 @@ static void imap_client_input(struct client *_client)
 			return;
 		}
 		if (imap_args->type == IMAP_ARG_EOL) {
-			/* FIXME: we get here, but we shouldn't.. */
+			/* Empty line received. Just ignore it. */
 		} else {
 			if (imap_parser_get_literal_size(client->parser,
 							 &literal_size)) {
