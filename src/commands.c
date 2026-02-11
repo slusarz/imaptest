@@ -62,13 +62,14 @@ ends_with_literal(const unsigned char *line, const unsigned char *p,
 
 static void
 command_get_cmdline(struct imap_client *client, const char **_cmdline,
-		    unsigned int *_cmdline_len)
+		    unsigned int *_cmdline_len, struct command *cmd)
 {
 	const unsigned char *cmdline = (const void *)*_cmdline;
 	unsigned int cmdline_len = *_cmdline_len;
 	string_t *str;
 	const unsigned char *p;
 	unsigned long len, lit_size;
+	unsigned int offset;
 
 	p = memchr(cmdline, '\n', cmdline_len);
 	if (p == NULL)
@@ -92,18 +93,26 @@ command_get_cmdline(struct imap_client *client, const char **_cmdline,
 			    p[-2] == '+') {
 				/* using literal+ without server support,
 				   change it to a normal literal */
-				i_fatal("FIXME: Add support for sync literals");
+				buffer_append(str, cmdline, p-cmdline-2);
+				str_append_c(str, '}');
+				str_append(str, "\r\n");
+				offset = str_len(str);
+				array_append(&cmd->sync_offsets, &offset, 1);
 			} else if ((client->capabilities & CAP_LITERALPLUS) != 0 &&
 				   p[-2] != '+') {
 				/* for now we always convert to literal+ */
 				buffer_append(str, cmdline, p-cmdline-1);
 				str_append(str, "+}");
+				str_append(str, "\r\n");
 			} else if (p[-2] != '+') {
-				i_fatal("FIXME: Add support for sync literals");
+				buffer_append(str, cmdline, p-cmdline);
+				str_append(str, "\r\n");
+				offset = str_len(str);
+				array_append(&cmd->sync_offsets, &offset, 1);
 			} else {
 				buffer_append(str, cmdline, p-cmdline);
+				str_append(str, "\r\n");
 			}
-			str_append(str, "\r\n");
 			cmdline += len;
 			cmdline_len -= len;
 
@@ -154,7 +163,8 @@ command_send_binary(struct imap_client *client, const char *cmdline,
 
 	cmd = i_new(struct command, 1);
 	T_BEGIN {
-		command_get_cmdline(client, &cmdline, &cmdline_len);
+		i_array_init(&cmd->sync_offsets, 4);
+		command_get_cmdline(client, &cmdline, &cmdline_len, cmd);
 		cmd->cmdline = i_malloc(cmdline_len+1);
 		memcpy(cmd->cmdline, cmdline, cmdline_len);
 		cmd->cmdline_len = cmdline_len;
@@ -207,11 +217,19 @@ command_send_binary(struct imap_client *client, const char *cmdline,
 	prefix = t_strdup_printf("%u.%u ", client->client.global_id, tag);
 	iov[0].iov_base = prefix;
 	iov[0].iov_len = strlen(prefix);
-	iov[1].iov_base = cmd->cmdline;
-	iov[1].iov_len = cmd->cmdline_len;
-	iov[2].iov_base = "\r\n";
-	iov[2].iov_len = 2;
-	o_stream_nsendv(client->client.output, iov, 3);
+
+	if (array_count(&cmd->sync_offsets) > 0) {
+		const unsigned int *offsets = array_get(&cmd->sync_offsets, NULL);
+		iov[1].iov_base = cmd->cmdline;
+		iov[1].iov_len = offsets[0];
+		o_stream_nsendv(client->client.output, iov, 2);
+	} else {
+		iov[1].iov_base = cmd->cmdline;
+		iov[1].iov_len = cmd->cmdline_len;
+		iov[2].iov_base = "\r\n";
+		iov[2].iov_len = 2;
+		o_stream_nsendv(client->client.output, iov, 3);
+	}
 	i_gettimeofday(&cmd->tv_start);
 
 	if (client->delay_timeout_ms > 0)
@@ -222,6 +240,35 @@ command_send_binary(struct imap_client *client, const char *cmdline,
 	array_append(&client->commands, &cmd, 1);
 	client->last_cmd = cmd;
 	return cmd;
+}
+
+int command_send_continue(struct imap_client *client, struct command *cmd)
+{
+	const unsigned int *offsets;
+	unsigned int count;
+	struct const_iovec iov[2];
+	unsigned int start, end;
+
+	offsets = array_get(&cmd->sync_offsets, &count);
+	if (cmd->sync_cur_idx >= count)
+		return -1;
+
+	start = offsets[cmd->sync_cur_idx];
+	cmd->sync_cur_idx++;
+	if (cmd->sync_cur_idx < count) {
+		end = offsets[cmd->sync_cur_idx];
+		iov[0].iov_base = cmd->cmdline + start;
+		iov[0].iov_len = end - start;
+		o_stream_nsendv(client->client.output, iov, 1);
+	} else {
+		iov[0].iov_base = cmd->cmdline + start;
+		iov[0].iov_len = cmd->cmdline_len - start;
+		iov[1].iov_base = "\r\n";
+		iov[1].iov_len = 2;
+		o_stream_nsendv(client->client.output, iov, 2);
+	}
+	imap_client_delayed_flush(client);
+	return 0;
 }
 
 void command_unlink(struct imap_client *client, struct command *cmd)
@@ -247,6 +294,8 @@ void command_free(struct command *cmd)
 {
 	if (array_is_created(&cmd->seq_range))
 		array_free(&cmd->seq_range);
+	if (array_is_created(&cmd->sync_offsets))
+		array_free(&cmd->sync_offsets);
 	timeout_remove(&cmd->delay_to);
 	i_free(cmd->cmdline);
 	i_free(cmd);

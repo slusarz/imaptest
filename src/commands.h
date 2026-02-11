@@ -24,6 +24,9 @@ struct command {
 	unsigned int tag;
 	ARRAY_TYPE(seq_range) seq_range;
 
+	ARRAY(unsigned int) sync_offsets;
+	unsigned int sync_cur_idx;
+
 	command_callback_t *callback;
 	struct timeval tv_start;
 	struct timeout *delay_to;
@@ -38,6 +41,7 @@ struct command *
 command_send_binary(struct imap_client *client, const char *cmdline,
 		    unsigned int cmdline_len,
 		    command_callback_t *callback);
+int command_send_continue(struct imap_client *client, struct command *cmd);
 
 void command_unlink(struct imap_client *client, struct command *cmd);
 void command_free(struct command *cmd);

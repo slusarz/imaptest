@@ -916,6 +916,12 @@ static int client_handle_cmd_reply(struct imap_client *client, struct command *c
 				return -1;
 			return 0;
 		}
+		if (array_is_created(&cmd->sync_offsets) &&
+		    array_count(&cmd->sync_offsets) > cmd->sync_cur_idx) {
+			if (command_send_continue(client, cmd) < 0)
+				return -1;
+			return 0;
+		}
 
 		imap_client_input_error(client, "%s: Unexpected continuation",
 					states[cmd->state].name);
