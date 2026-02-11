@@ -1,0 +1,7 @@
+state: nonauth
+connections: 1
+ignore_extra_untagged: yes
+
+ok capability
+ok compress deflate
+ok noop

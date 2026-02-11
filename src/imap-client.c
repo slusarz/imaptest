@@ -582,19 +582,24 @@ imap_client_input_args(struct imap_client *client, const struct imap_arg *args)
 	command_unlink(client, cmd);
 
 	o_stream_cork(client->client.output);
-	cmd->callback(client, cmd, args, reply);
-	imap_client_cmd_reply_finish(client);
-	o_stream_uncork(client->client.output);
 
-	bool compress = FALSE;
 	if (cmd->compress_on_ok) {
 		i_assert(client->compress_enabling);
 		client->compress_enabling = FALSE;
-		compress = (reply == REPLY_OK);
+		if (reply == REPLY_OK) {
+			o_stream_uncork(client->client.output);
+			if (imap_client_enable_compress(client) < 0) {
+				command_free(cmd);
+				return -1;
+			}
+			o_stream_cork(client->client.output);
+		}
 	}
+
+	cmd->callback(client, cmd, args, reply);
+	imap_client_cmd_reply_finish(client);
+	o_stream_uncork(client->client.output);
 	command_free(cmd);
-	if (compress)
-		return imap_client_enable_compress(client);
 	return 0;
 }
 
@@ -674,13 +679,15 @@ static void imap_client_input(struct client *_client)
 			/* end of command - skip CRLF */
 			imap_parser_reset(client->parser);
 
-			data = i_stream_get_data(_client->input, &size);
-			if (size > 0 && data[0] == '\r') {
-				i_stream_skip(_client->input, 1);
+			if (!client->compress_enabled) {
 				data = i_stream_get_data(_client->input, &size);
+				if (size > 0 && data[0] == '\r') {
+					i_stream_skip(_client->input, 1);
+					data = i_stream_get_data(_client->input, &size);
+				}
+				if (size > 0 && data[0] == '\n')
+					i_stream_skip(_client->input, 1);
 			}
-			if (size > 0 && data[0] == '\n')
-				i_stream_skip(_client->input, 1);
 		}
 
 		if (ret < 0)
