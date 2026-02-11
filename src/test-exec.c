@@ -47,6 +47,7 @@ struct test_exec_context {
 
 	/* current command group index */
 	unsigned int cur_group_idx;
+	struct timeout *to_next_group;
 	unsigned int cur_untagged_mismatch_count;
 	const char *first_extra_reply;
 	ARRAY(struct command *) cur_commands;
@@ -847,6 +848,31 @@ static void test_group_output(struct test_exec_context *ctx,
 	} T_END;
 }
 
+static void test_group_continue(struct test_exec_context *ctx)
+{
+	if (ctx->to_next_group != NULL)
+		timeout_remove(&ctx->to_next_group);
+
+	array_clear(&ctx->cur_commands);
+	ctx->cur_group_idx++;
+	if (ctx->test->required_capabilities == NULL)
+		ctx->exec_ctx->base_tests++;
+	else
+		ctx->exec_ctx->ext_tests++;
+	if (ctx->init_finished)
+		test_send_next_command_group(ctx);
+	else {
+		unsigned int i;
+
+		/* resume input for all clients during startup phase */
+		for (i = 0; i < ctx->test->connection_count; i++) {
+			if (ctx->clients[i] != NULL &&
+			    !ctx->clients[i]->client.disconnected)
+				client_input_continue(&ctx->clients[i]->client);
+		}
+	}
+}
+
 static void test_group_finished(struct test_exec_context *ctx,
 				struct test_command_group *group)
 {
@@ -860,17 +886,20 @@ static void test_group_finished(struct test_exec_context *ctx,
 	}
 	if (array_is_created(&group->output))
 		test_group_output(ctx, group);
-	if (group->sleep_msecs > 0)
-		usleep(group->sleep_msecs*1000);
+	if (group->sleep_msecs > 0) {
+		unsigned int i;
 
-	array_clear(&ctx->cur_commands);
-	ctx->cur_group_idx++;
-	if (ctx->test->required_capabilities == NULL)
-		ctx->exec_ctx->base_tests++;
-	else
-		ctx->exec_ctx->ext_tests++;
-	if (ctx->init_finished)
-		test_send_next_command_group(ctx);
+		/* stop reading input while we sleep */
+		for (i = 0; i < ctx->test->connection_count; i++) {
+			if (ctx->clients[i] != NULL)
+				client_input_stop(&ctx->clients[i]->client);
+		}
+		ctx->to_next_group = timeout_add(group->sleep_msecs,
+						 test_group_continue, ctx);
+		return;
+	}
+
+	test_group_continue(ctx);
 }
 
 static void test_cmd_callback(struct imap_client *client,
@@ -1535,6 +1564,8 @@ static void test_execute_finish(struct test_exec_context *ctx)
 
 static void test_execute_free(struct test_exec_context *ctx)
 {
+	if (ctx->to_next_group != NULL)
+		timeout_remove(&ctx->to_next_group);
 	array_free(&ctx->cur_seqmap);
 	hash_table_destroy(&ctx->variables);
 	mailbox_source_unref(&ctx->source);
