@@ -47,6 +47,7 @@ enum client_state {
         STATE_DELAY,
         STATE_CHECKPOINT,
         STATE_LMTP,
+        STATE_MOVE,
 
         STATE_COUNT
 };

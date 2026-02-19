@@ -54,7 +54,8 @@ struct state states[] = {
 	{ "DISCONNECT",	  "Disc", LSTATE_NONAUTH,  0,   0,  0 },
 	{ "DELAY",	  "Dela", LSTATE_NONAUTH,  0,   0,  0 },
 	{ "CHECKPOINT!",  "ChkP", LSTATE_NONAUTH,  0,   0,  0 },
-	{ "LMTP",         "LMTP", LSTATE_NONAUTH,  0,   0,  0 }
+	{ "LMTP",         "LMTP", LSTATE_NONAUTH,  0,   0,  0 },
+	{ "MOVE",         "Move", LSTATE_SELECTED, 0,   0,  FLAG_MSGSET | FLAG_EXPUNGES }
 };
 static_assert_array_size(states, STATE_COUNT);
 
@@ -1012,11 +1013,12 @@ static int client_handle_cmd_reply(struct imap_client *client, struct command *c
 		break;
 	}
 	case STATE_COPY:
+	case STATE_MOVE:
 		if (reply == REPLY_NO) {
 			if (imap_arg_atom_equals(args, "[TRYCREATE]")) {
 				str = t_strdup_printf("CREATE \"%s\"",
 						      conf.copy_dest);
-				client->client.state = STATE_COPY;
+				client->client.state = cmd->state;
 				command_send(client, str, state_callback);
 				break;
 			}
@@ -1024,7 +1026,8 @@ static int client_handle_cmd_reply(struct imap_client *client, struct command *c
 				/* this isn't an error */
 				break;
 			}
-			imap_client_state_error(client, "COPY failed");
+			imap_client_state_error(client, "%s failed",
+						states[cmd->state].name);
 		}
 		break;
 	case STATE_APPEND:
@@ -1553,6 +1556,7 @@ int imap_client_plan_send_next_cmd(struct imap_client *client)
 	case STATE_DELAY:
 	case STATE_CHECKPOINT:
 	case STATE_LMTP:
+	case STATE_MOVE:
 	case STATE_COUNT:
 		i_unreached();
 	}
