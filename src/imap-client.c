@@ -488,7 +488,7 @@ static int imap_client_enable_compress(struct imap_client *client)
 		return imap_client_input_error(client, "Missing CRLF in COMPRESS tagged reply");
 	i_stream_skip(client->client.input, 2);
 
-	io_remove(&client->client.io);
+	connection_input_halt(&client->client.conn);
 	client_rawlog_deinit(&client->client);
 
 	input = i_stream_create_deflate(client->client.input);
@@ -498,11 +498,15 @@ static int imap_client_enable_compress(struct imap_client *client)
 	client->client.input = input;
 	client->client.output = output;
 
+	client->client.conn.input = input;
+	client->client.conn.output = output;
+
 	client_rawlog_init(&client->client);
 	imap_parser_set_streams(client->parser, client->client.input,
 				client->client.output);
 
-	client_input_continue(&client->client);
+	connection_streams_changed(&client->client.conn);
+	connection_input_resume(&client->client.conn);
 
 	client->compress_enabled = TRUE;
 	(void)client_send_more_commands(&client->client);

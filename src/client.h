@@ -3,6 +3,7 @@
 
 #include "client-state.h"
 #include "user.h"
+#include "connection.h"
 
 enum client_protocol {
 	CLIENT_PROTOCOL_IMAP = 0,
@@ -22,6 +23,7 @@ struct client_vfuncs {
 };
 
 struct client {
+	struct connection conn;
 	int refcount;
 	struct user *user;
 	struct user_client *user_client;
@@ -32,12 +34,11 @@ struct client {
         unsigned int idx, global_id;
         unsigned int cur;
 
-	int fd, rawlog_fd;
+	int rawlog_fd;
 	/* [pre_]_rawlog_[in|out]put is not referenced */
 	struct istream *input, *pre_rawlog_input, *rawlog_input;
 	struct ostream *output, *pre_rawlog_output, *rawlog_output;
 	struct ssl_iostream *ssl_iostream;
-	struct io *io;
 	struct timeout *to;
 
 	enum login_state login_state;
@@ -55,6 +56,7 @@ extern int clients_count;
 extern unsigned int total_disconnects;
 extern ARRAY_TYPE(client) clients;
 extern bool stalled, disconnect_clients, no_new_clients;
+extern struct connection_list *client_connections;
 
 struct client *client_new_user(struct user *user);
 struct client *client_new_random(unsigned int i, struct mailbox_source *source);

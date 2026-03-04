@@ -36,21 +36,31 @@ bool stalled = FALSE, disconnect_clients = FALSE, no_new_clients = FALSE;
 static unsigned int client_min_free_idx = 0;
 static unsigned int global_id_counter = 0;
 static struct ssl_iostream_context *ssl_ctx = NULL;
+struct connection_list *client_connections = NULL;
 
-static void client_input(struct client *client)
+static void client_input(struct connection *conn)
 {
+	struct client *client = (struct client *)conn;
 	client->last_io = ioloop_time;
+	int ret;
 
-	switch (i_stream_read(client->input)) {
+	if (conf.ssl && ssl_ctx != NULL && client->ssl_iostream != NULL && !ssl_iostream_is_handshaked(client->ssl_iostream)) {
+		if (ssl_iostream_handshake(client->ssl_iostream) <= 0) {
+			return;
+		}
+	}
+
+	switch ((ret = connection_input_read(conn))) {
 	case 0:
 		return;
 	case -1:
 		/* disconnected */
-		if (client->input->stream_errno != 0 &&
+		if (client->input != NULL &&
+		    client->input->stream_errno != 0 &&
 		    client->input->stream_errno != EPIPE &&
-		    !client->logout_sent)
-			i_error("Client disconnected: %s",
-				i_stream_get_error(client->input));
+		    !client->logout_sent) {
+			i_error("Client disconnected: %s", connection_disconnect_reason(conn));
+		}
 		if (client->v.disconnected != NULL) {
 			if (!client->v.disconnected(client))
 				return;
@@ -70,7 +80,7 @@ static void client_input(struct client *client)
 		counters[STATE_DISCONNECT]++;
 		client_unref(client, TRUE);
 	} else {
-		if (client->input->closed)
+		if (conn->disconnected || client->input == NULL || client->input->closed)
 			client_unref(client, TRUE);
 	}
 	client_unref(client, TRUE);
@@ -78,20 +88,16 @@ static void client_input(struct client *client)
 
 void client_input_stop(struct client *client)
 {
-	if (client->io != NULL)
-		io_remove(&client->io);
+	connection_input_halt(&client->conn);
 }
 
 void client_input_continue(struct client *client)
 {
-	if (client->io == NULL && !client->input->closed)
-		client->io = io_add_istream(client->input, client_input, client);
+	connection_input_resume(&client->conn);
 }
 
 static void client_delay_timeout(struct client *client)
 {
-	i_assert(client->io == NULL);
-
 	client->delayed = FALSE;
 	client->last_io = ioloop_time;
 
@@ -101,14 +107,14 @@ static void client_delay_timeout(struct client *client)
 
 void client_delay(struct client *client, unsigned int msecs)
 {
-	if (client->input->closed) {
+	if (client->conn.disconnected) {
 		/* we're already disconnected and client->to is set */
 		return;
 	}
 	i_assert(client->to == NULL);
 
 	client->delayed = TRUE;
-	io_remove(&client->io);
+	connection_input_halt(&client->conn);
 	client->to = timeout_add(msecs, client_delay_timeout, client);
 }
 
@@ -127,7 +133,7 @@ static int client_output(struct client *client)
 	o_stream_uncork(client->output);
 	if (ret < 0)
 		client_unref(client, TRUE);
-        return ret;
+	return ret;
 }
 
 void client_rawlog_init(struct client *client)
@@ -161,20 +167,13 @@ void client_rawlog_deinit(struct client *client)
 	client->output = client->pre_rawlog_output;
 }
 
-static void client_wait_connect(struct client *client)
+static void client_connected(struct connection *conn, bool connected ATTR_UNUSED)
 {
+	struct client *client = (struct client *)conn;
 	const char *error;
-	int err;
 
-	err = net_geterror(client->fd);
-	if (err != 0) {
-		i_error("connect() failed: %s", strerror(err));
-		client_unref(client, TRUE);
-		return;
-	}
-
-	/* remove before ssl handshake */
-	io_remove(&client->io);
+	client->input = conn->input;
+	client->output = conn->output;
 
 	if (conf.ssl) {
 		if (ssl_ctx == NULL) {
@@ -182,14 +181,21 @@ static void client_wait_connect(struct client *client)
 				i_fatal("Failed to initialize SSL context: %s", error);
 		}
 		if (io_stream_create_ssl_client(ssl_ctx, conf.host, NULL, 0,
-						&client->input, &client->output,
+						&conn->input, &conn->output,
 						&client->ssl_iostream, &error) < 0)
 			i_fatal("Couldn't create SSL iostream: %s", error);
-		(void)ssl_iostream_handshake(client->ssl_iostream);
+
+		client->input = conn->input;
+		client->output = conn->output;
+
+		connection_streams_changed(conn);
 	}
 	client_rawlog_init(client);
 
-	client->io = io_add_istream(client->input, client_input, client);
+	o_stream_set_no_error_handling(client->output, TRUE);
+	o_stream_set_flush_callback(client->output, client_output, client);
+
+	client->last_io = ioloop_time;
 	client->v.connected(client);
 }
 
@@ -240,24 +246,16 @@ int client_init(struct client *client, unsigned int idx,
 		struct user *user, struct user_client *uc)
 {
 	const struct ip_addr *ip;
-	int fd;
 
 	i_assert(idx >= array_count(&clients) ||
 		 *(struct client **)array_idx(&clients, idx) == NULL);
-	/*if (stalled) {
-		array_append(&stalled_clients, &idx, 1);
-		return NULL;
-	}*/
 
 	ip = &conf.ips[conf.ip_idx];
-	fd = net_connect_ip(ip, client->port, NULL);
+	connection_init_client_ip(client_connections, &client->conn, conf.host, ip, client->port);
+	client->conn.label = i_strdup_printf("client %u", idx);
+
 	if (++conf.ip_idx == conf.ips_count)
 		conf.ip_idx = 0;
-
-	if (fd < 0) {
-		i_error("connect() failed: %m");
-		return -1;
-	}
 
 	client->refcount = 1;
 	client->idx = idx;
@@ -265,20 +263,17 @@ int client_init(struct client *client, unsigned int idx,
 	client->user_client = uc;
 	client->global_id = ++global_id_counter;
 
-	client->fd = fd;
 	client->rawlog_fd = -1;
-	client->input = i_stream_create_fd(fd, (size_t)-1);
-	client->output = o_stream_create_fd(fd, (size_t)-1);
-	i_stream_set_name(client->input, t_strdup_printf("client %u", idx));
-	o_stream_set_name(client->output, t_strdup_printf("client %u", idx));
-	o_stream_set_no_error_handling(client->output, TRUE);
-	o_stream_set_flush_callback(client->output, client_output, client);
-	client->io = io_add(fd, IO_WRITE, client_wait_connect, client);
-        client->last_io = ioloop_time;
+	client->ssl_iostream = NULL;
+	client->last_io = ioloop_time;
+
+	if (connection_client_connect(&client->conn) < 0) {
+		return -1;
+	}
 
 	clients_count++;
 	user_add_client(user, client);
-        array_idx_set(&clients, idx, &client);
+	array_idx_set(&clients, idx, &client);
 	return 0;
 }
 
@@ -291,18 +286,19 @@ void client_logout(struct client *client)
 	client->v.logout(client);
 }
 
+static void client_input_timeout(struct client *client)
+{
+	client_input(&client->conn);
+}
+
 void client_disconnect(struct client *client)
 {
 	client->disconnected = TRUE;
+	connection_disconnect(&client->conn);
 
-	i_stream_close(client->input);
-	o_stream_close(client->output);
-
-	if (client->io != NULL)
-		io_remove(&client->io);
 	if (client->to != NULL)
 		timeout_remove(&client->to);
-	client->to = timeout_add(0, client_input, client);
+	client->to = timeout_add(0, client_input_timeout, client);
 }
 
 static void clients_unstalled(struct mailbox_source *source)
@@ -334,16 +330,12 @@ bool client_unref(struct client *client, bool reconnect)
 
 	client->v.free(client);
 
-	o_stream_destroy(&client->output);
-	i_stream_destroy(&client->input);
 	if (client->ssl_iostream != NULL)
 		ssl_iostream_destroy(&client->ssl_iostream);
-	if (client->io != NULL)
-		io_remove(&client->io);
 	if (client->to != NULL)
 		timeout_remove(&client->to);
-	if (close(client->fd) < 0)
-		i_error("close(client) failed: %m");
+	connection_deinit(&client->conn);
+	i_free(client->conn.label);
 	user_remove_client(client->user, client);
 
 	if (disconnect_clients && !imaptest_has_clients())
@@ -403,14 +395,41 @@ unsigned int clients_get_random_idx(void)
 	return 0;
 }
 
+static void client_error(struct connection *conn)
+{
+	/* This is called for connection errors (e.g. timeout) */
+	struct client *client = (struct client *)conn;
+	i_error("Client disconnected: %s", connection_disconnect_reason(conn));
+	client_unref(client, TRUE);
+}
+
+static void client_destroy(struct connection *conn ATTR_UNUSED)
+{
+}
+
 void clients_init(void)
 {
 	i_array_init(&stalled_clients, CLIENTS_COUNT);
+
+	struct connection_settings set;
+	i_zero(&set);
+	set.client = TRUE;
+	set.input_idle_timeout_secs = 0; /* managed manually */
+
+	struct connection_vfuncs vfuncs;
+	i_zero(&vfuncs);
+	vfuncs.client_connected = client_connected;
+	vfuncs.input = client_input;
+	vfuncs.destroy = client_destroy;
+
+	client_connections = connection_list_init(&set, &vfuncs);
 }
 
 void clients_deinit(void)
 {
 	if (ssl_ctx != NULL)
 		ssl_iostream_context_unref(&ssl_ctx);
+	if (client_connections != NULL)
+		connection_list_deinit(&client_connections);
 	array_free(&stalled_clients);
 }
