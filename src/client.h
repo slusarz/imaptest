@@ -44,6 +44,8 @@ struct client {
 	enum client_state state;
         time_t last_io;
 
+	unsigned int active_idx;
+
 	bool delayed:1;
 	bool disconnected:1;
 	bool logout_sent:1;
@@ -54,6 +56,7 @@ ARRAY_DEFINE_TYPE(client, struct client *);
 extern int clients_count;
 extern unsigned int total_disconnects;
 extern ARRAY_TYPE(client) clients;
+extern ARRAY_TYPE(client) active_clients;
 extern bool stalled, disconnect_clients, no_new_clients;
 
 struct client *client_new_user(struct user *user);
