@@ -15,11 +15,29 @@ struct settings conf;
 static void test_parse_path(const char *path)
 {
 	struct test_parser *parser;
+	const ARRAY_TYPE(test) *tests;
+	struct test *const *testp;
 
 	printf("Parsing %s... ", path);
 	fflush(stdout);
 
 	parser = test_parser_init(path);
+	tests = test_parser_get_tests(parser);
+
+	array_foreach(tests, testp) {
+		struct test *test = *testp;
+		const struct test_connection *conns;
+		unsigned int count;
+
+		printf("\n  Test: %s (require_user2=%s)\n", test->name,
+		       test->require_user2 ? "yes" : "no");
+		conns = array_get(&test->connections, &count);
+		for (unsigned int i = 0; i < count; i++) {
+			printf("    Conn %u: user=%s\n", i + 1,
+			       conns[i].username ? conns[i].username : "(null)");
+		}
+	}
+
 	test_parser_deinit(&parser);
 
 	printf("OK\n");
@@ -35,6 +53,8 @@ int main(int argc, char *argv[])
 
 	lib_init();
 	set_conf_default(&conf);
+	conf.username_template = "user1-tmpl";
+	conf.username2_template = "user2-tmpl";
 
 	if (argc > 1)
 		path = argv[1];

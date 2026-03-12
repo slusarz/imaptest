@@ -6,9 +6,11 @@
 #include "imap-parser.h"
 #include "settings.h"
 #include "str-parse.h"
+#include "var-expand.h"
 #include "test-parser.h"
 
 #include <stdlib.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <dirent.h>
@@ -16,6 +18,7 @@
 
 #define DEFAULT_MBOX_FNAME "default.mbox"
 #define MAX_TEST_CONNECTIONS 100
+#define IS_VAR_CHAR(c) (i_isalnum(c) || (c) == '_')
 
 struct ifenv {
 	unsigned int linenum;
@@ -34,6 +37,74 @@ struct test_parser {
 	ARRAY(struct ifenv) ifenv_stack;
 	bool skip;
 };
+
+static int
+test_parser_header_value_expand(struct test *test, const char **value_r,
+				const char **error_r)
+{
+	const char *value = *value_r;
+	const char *p;
+	string_t *expanded_var;
+	const char *var_name;
+	bool require_user2 = FALSE;
+
+	if (strchr(value, '$') == NULL)
+		return 0;
+
+	expanded_var = t_str_new(128);
+	for (p = value; *p != '\0'; ) {
+		if (*p != '$' || p[1] == '\0') {
+			str_append_c(expanded_var, *p++);
+			continue;
+		}
+		p++;
+		if (*p == '$') {
+			str_append_c(expanded_var, *p++);
+			continue;
+		}
+
+		if (*p == '{') {
+			const char *end = strchr(p + 1, '}');
+			if (end == NULL) {
+				*error_r = "Missing '}'";
+				return -1;
+			}
+			var_name = t_strdup_until(p + 1, end);
+			p = end + 1;
+		} else {
+			const char *start = p;
+			while (IS_VAR_CHAR(*p)) p++;
+			var_name = t_strdup_until(start, p);
+		}
+
+		if (strcmp(var_name, "user") == 0 ||
+		    strcmp(var_name, "user1") == 0) {
+			str_append(expanded_var, "%{user}");
+		} else if (strcmp(var_name, "user2") == 0) {
+			str_append(expanded_var, "%{user2}");
+			require_user2 = TRUE;
+		} else {
+			/* unsupported variable in header, keep it as is */
+			str_append_c(expanded_var, '$');
+			str_append(expanded_var, var_name);
+		}
+	}
+
+	const struct var_expand_table table[] = {
+		{ .key = "user", .value = conf.username_template },
+		{ .key = "user2", .value = conf.username2_template },
+		VAR_EXPAND_TABLE_END
+	};
+	const struct var_expand_params params = { .table = table };
+	string_t *dest = t_str_new(128);
+	if (var_expand(dest, str_c(expanded_var), &params, error_r) < 0)
+		return -1;
+
+	*value_r = str_c(dest);
+	if (require_user2)
+		test->require_user2 = TRUE;
+	return 0;
+}
 
 static bool
 test_parse_header_line(struct test_parser *parser, struct test *test,
@@ -78,12 +149,9 @@ test_parse_header_line(struct test_parser *parser, struct test *test,
 			*error_r = "Too many connections";
 			return FALSE;
 		}
-		/* FIXME: kludgy kludgy */
-		if (strcmp(value, "$user2") == 0 ||
-		    strcmp(value, "${user2}") == 0) {
-			test->require_user2 = TRUE;
-			value = conf.username2_template;
-		}
+		if (test_parser_header_value_expand(test, &value, error_r) < 0)
+			return FALSE;
+
 		test_conn = array_idx_get_space(&test->connections, idx-1);
 		test_conn->username = p_strdup(parser->pool, value);
 		return TRUE;
