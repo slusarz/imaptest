@@ -374,7 +374,7 @@ void imap_client_capability_parse(struct imap_client *client, const char *line)
 		p_strsplit_free(default_pool, client->capabilities_list);
 	client->capabilities_list = p_strsplit(default_pool, line, " ");
 
-	for (tmp = t_strsplit(line, " "); *tmp != NULL; tmp++) {
+	for (tmp = (const char *const *)client->capabilities_list; *tmp != NULL; tmp++) {
 		for (i = 0; cap_names[i].name != NULL; i++) {
 			if (strcasecmp(*tmp, cap_names[i].name) == 0) {
 				client->capabilities |= cap_names[i].capability;
