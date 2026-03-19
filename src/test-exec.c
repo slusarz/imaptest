@@ -1030,7 +1030,8 @@ static void test_send_next_command_group(struct test_exec_context *ctx)
 
 	/* create initial sequence map */
 	array_clear(&ctx->cur_seqmap);
-	for (seq = 1; seq <= array_count(&client->view->uidmap); seq++)
+	unsigned int count = array_count(&client->view->uidmap);
+	for (seq = 1; seq <= count; seq++)
 		array_append(&ctx->cur_seqmap, &seq, 1);
 
 	array_foreach_modifiable(&(*groupp)->commands, cmd)
