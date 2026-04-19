@@ -1,5 +1,5 @@
 bin_PROGRAMS = imaptest
-noinst_PROGRAMS = test-test-parser
+noinst_PROGRAMS = test-test-parser test-username-format
 
 AM_CPPFLAGS = $(LIBDOVECOT_INCLUDE) -DSTATIC_OPENSSL=1
 imaptest_LDFLAGS = $(AM_LDFLAGS)
@@ -24,11 +24,16 @@ imaptest_SOURCES = \
 	settings.c \
 	test-exec.c \
 	test-parser.c \
-	user.c
+	user.c \
+	username-format.c
 
 test_test_parser_SOURCES = test-test-parser.c test-parser.c settings.c
 test_test_parser_LDADD = $(imaptest_LDADD)
 test_test_parser_CFLAGS = $(imaptest_CFLAGS)
+
+test_username_format_SOURCES = test-username-format.c username-format.c
+test_username_format_LDADD = $(imaptest_LDADD)
+test_username_format_CFLAGS = $(imaptest_CFLAGS)
 
 noinst_HEADERS = \
 	checkpoint.h \
@@ -47,7 +52,8 @@ noinst_HEADERS = \
 	settings.h \
 	test-exec.h \
 	test-parser.h \
-	user.h
+	user.h \
+	username-format.h
 
 imaptest_CFLAGS = $(AM_CPPFLAGS) $(BINARY_CFLAGS)
 imaptest_LDADD = \
