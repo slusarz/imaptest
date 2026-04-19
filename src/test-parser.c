@@ -8,6 +8,7 @@
 #include "str-parse.h"
 #include "test-parser.h"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -16,6 +17,7 @@
 
 #define DEFAULT_MBOX_FNAME "default.mbox"
 #define MAX_TEST_CONNECTIONS 100
+#define IS_VAR_CHAR(c) (i_isalnum(c) || (c) == '_')
 
 struct ifenv {
 	unsigned int linenum;
@@ -34,6 +36,63 @@ struct test_parser {
 	ARRAY(struct ifenv) ifenv_stack;
 	bool skip;
 };
+
+static const char *
+test_parser_header_value_expand(struct test *test, const char *value)
+{
+	string_t *expanded;
+	const char *p, *var_name, *var_value;
+
+	if (strchr(value, '$') == NULL)
+		return value;
+
+	expanded = t_str_new(128);
+	for (p = value; *p != '\0'; p++) {
+		if (*p != '$' || p[1] == '\0') {
+			str_append_c(expanded, *p);
+			continue;
+		}
+
+		p++;
+		if (*p == '$') {
+			str_append_c(expanded, '$');
+			continue;
+		}
+
+		if (*p == '{') {
+			p++;
+			var_name = strchr(p, '}');
+			if (var_name == NULL) {
+				/* ignore if missing '}' */
+				str_append(expanded, "${");
+				p--;
+				continue;
+			}
+			var_name = t_strdup_until(p, var_name);
+			p += strlen(var_name);
+		} else {
+			const char *start = p;
+			while (IS_VAR_CHAR(*p))
+				p++;
+			var_name = t_strdup_until(start, p);
+			p--;
+		}
+
+		if (strcmp(var_name, "user") == 0 ||
+		    strcmp(var_name, "user1") == 0) {
+			var_value = conf.username_template;
+		} else if (strcmp(var_name, "user2") == 0) {
+			test->require_user2 = TRUE;
+			var_value = conf.username2_template;
+		} else {
+			var_value = getenv(var_name);
+		}
+
+		if (var_value != NULL)
+			str_append(expanded, var_value);
+	}
+	return str_c(expanded);
+}
 
 static bool
 test_parse_header_line(struct test_parser *parser, struct test *test,
@@ -78,12 +137,7 @@ test_parse_header_line(struct test_parser *parser, struct test *test,
 			*error_r = "Too many connections";
 			return FALSE;
 		}
-		/* FIXME: kludgy kludgy */
-		if (strcmp(value, "$user2") == 0 ||
-		    strcmp(value, "${user2}") == 0) {
-			test->require_user2 = TRUE;
-			value = conf.username2_template;
-		}
+		value = test_parser_header_value_expand(test, value);
 		test_conn = array_idx_get_space(&test->connections, idx-1);
 		test_conn->username = p_strdup(parser->pool, value);
 		return TRUE;
