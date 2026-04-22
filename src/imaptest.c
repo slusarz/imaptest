@@ -41,6 +41,12 @@ static struct ostream *results_output = NULL;
 static struct timeout *to_stop;
 static unsigned int final_wait_secs;
 
+struct imaptest_context {
+	struct profile *profile;
+	const char *hostip;
+	const char *testpath;
+};
+
 #define STATE_IS_VISIBLE(state) \
 	(states[i].probability != 0)
 
@@ -562,23 +568,12 @@ bool username_format_is_valid(const char *s, const char **error_r)
 	return FALSE;
 }
 
-int main(int argc ATTR_UNUSED, char *argv[])
+static int parse_args(struct imaptest_context *ctx, char *argv[])
 {
 	struct state *state;
-	struct profile *profile = NULL;
-	const char *error, *key, *value, *hostip = NULL, *testpath = NULL;
+	const char *key, *value;
 	unsigned int i;
-	int ret, fd;
-
-	lib_init();
-	ioloop = io_loop_create();
-
-	lib_signals_init();
-	lib_signals_ignore(SIGPIPE, TRUE);
-	lib_signals_set_handler(SIGINT, LIBSIG_FLAG_DELAYED, sig_die, NULL);
-
-	set_conf_default(&conf);
-	to_stop = NULL;
+	int fd;
 
 	for (argv++; *argv != NULL; argv++) {
 		value = strchr(*argv, '=');
@@ -589,7 +584,7 @@ int main(int argc ATTR_UNUSED, char *argv[])
 		if (strcmp(*argv, "-h") == 0 ||
 		    strcmp(*argv, "--help") == 0) {
 			print_help();
-			return 0;
+			return 1;
 		}
 		if (strcmp(key, "secs") == 0) {
 			unsigned int secs;
@@ -754,12 +749,12 @@ int main(int argc ATTR_UNUSED, char *argv[])
 		}
 		/* test=dir */
 		if (strcmp(key, "test") == 0) {
-			testpath = value;
+			ctx->testpath = value;
 			continue;
 		}
 		/* profile=path */
 		if (strcmp(key, "profile") == 0) {
-			profile = profile_parse(value);
+			ctx->profile = profile_parse(value);
 			profile_running = TRUE;
 			continue;
 		}
@@ -790,7 +785,7 @@ int main(int argc ATTR_UNUSED, char *argv[])
 			continue;
 		}
 		if (strcmp(key, "hostip") == 0) {
-			hostip = value;
+			ctx->hostip = value;
 			continue;
 		}
 		if (strcmp(key, "port") == 0) {
@@ -829,8 +824,16 @@ int main(int argc ATTR_UNUSED, char *argv[])
 
 		i_fatal("Unknown arg: %s", *argv);
 	}
+	return 0;
+}
+
+static void imaptest_init(struct imaptest_context *ctx)
+{
+	const char *error;
+	int ret;
+
 	if (conf.mailbox == NULL)
-		conf.mailbox = testpath == NULL ? "INBOX" : "imaptest";
+		conf.mailbox = ctx->testpath == NULL ? "INBOX" : "imaptest";
 
 	if (conf.username_template == NULL)
 		i_fatal("Missing username");
@@ -838,15 +841,15 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	if (!username_format_is_valid(conf.username_template, &error))
 		i_fatal("invalid user format: %s", error);
 
-	if (testpath != NULL && strchr(conf.username_template, '%') != NULL)
+	if (ctx->testpath != NULL && strchr(conf.username_template, '%') != NULL)
 		i_fatal("Don't use %% in username with tests");
 
-	if (hostip == NULL)
-		hostip = conf.host;
-	if ((ret = net_gethostbyname(hostip, &conf.ips,
+	if (ctx->hostip == NULL)
+		ctx->hostip = conf.host;
+	if ((ret = net_gethostbyname(ctx->hostip, &conf.ips,
 				     &conf.ips_count)) != 0) {
 		i_fatal("net_gethostbyname(%s) failed: %s",
-			hostip, net_gethosterror(ret));
+			ctx->hostip, net_gethosterror(ret));
 	}
 
 	lib_set_clean_exit(FALSE);
@@ -854,7 +857,7 @@ int main(int argc ATTR_UNUSED, char *argv[])
 		print_results_header();
 	fix_probabilities();
 	mailbox_source = imaptest_mailbox_source();
-	users_init(profile, mailbox_source);
+	users_init(ctx->profile, mailbox_source);
 	mailboxes_init();
 	clients_init();
 	dsasl_clients_init();
@@ -863,17 +866,16 @@ int main(int argc ATTR_UNUSED, char *argv[])
 #endif
 
 	i_array_init(&clients, CLIENTS_COUNT);
-	if (testpath == NULL)
-		imaptest_run();
-	else
-		imaptest_run_tests(testpath);
+}
 
+static void imaptest_deinit(struct imaptest_context *ctx)
+{
 	imaptest_lmtp_delivery_deinit();
 	clients_deinit();
 	mailboxes_deinit();
 	users_deinit();
-	if (profile != NULL) {
-		pool_unref(&profile->pool);
+	if (ctx->profile != NULL) {
+		pool_unref(&ctx->profile->pool);
 		profile_deinit();
 	}
 	mailbox_source_unref(&mailbox_source);
@@ -895,5 +897,33 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	lib_signals_deinit();
 	io_loop_destroy(&ioloop);
 	lib_deinit();
+}
+
+int main(int argc ATTR_UNUSED, char *argv[])
+{
+	struct imaptest_context ctx;
+
+	lib_init();
+	ioloop = io_loop_create();
+
+	lib_signals_init();
+	lib_signals_ignore(SIGPIPE, TRUE);
+	lib_signals_set_handler(SIGINT, LIBSIG_FLAG_DELAYED, sig_die, NULL);
+
+	set_conf_default(&conf);
+	to_stop = NULL;
+
+	i_zero(&ctx);
+	if (parse_args(&ctx, argv) != 0)
+		return 0;
+
+	imaptest_init(&ctx);
+
+	if (ctx.testpath == NULL)
+		imaptest_run();
+	else
+		imaptest_run_tests(ctx.testpath);
+
+	imaptest_deinit(&ctx);
 	return return_value;
 }
