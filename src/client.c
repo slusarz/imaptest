@@ -198,21 +198,23 @@ client_new_full(unsigned int i, struct user *user, struct user_client *uc)
 {
 	struct imap_client *imap_c;
 	struct pop3_client *pop3_c;
-
-	if (client_min_free_idx == i)
-		client_min_free_idx++;
+	struct client *client;
 
 	if (uc == NULL || uc->profile == NULL ||
 	    strcmp(uc->profile->protocol, "imap") == 0) {
 		if (imap_client_new(i, user, uc, &imap_c) < 0)
 			return NULL;
-		return &imap_c->client;
+		client = &imap_c->client;
 	} else if (strcmp(uc->profile->protocol, "pop3") == 0) {
 		if (pop3_client_new(i, user, uc, &pop3_c) < 0)
 			return NULL;
-		return &pop3_c->client;
+		client = &pop3_c->client;
 	} else
 		i_unreached();
+
+	if (client_min_free_idx == client->idx)
+		client_min_free_idx++;
+	return client;
 }
 
 struct client *client_new_user(struct user *user)
@@ -248,6 +250,23 @@ int client_init(struct client *client, unsigned int idx,
 {
 	const struct ip_addr *ip;
 	int fd;
+
+	if (idx < array_count(&clients) &&
+	    *(struct client *const *)array_idx(&clients, idx) != NULL) {
+		/* The requested index is already occupied. This can happen
+		   when clients_unstalled() reuses a stalled client's index
+		   that was subsequently reassigned to another client.
+		   Find a free slot. */
+		struct client *const *c;
+		unsigned int i, count;
+
+		c = array_get(&clients, &count);
+		for (i = 0; i < count; i++) {
+			if (c[i] == NULL)
+				break;
+		}
+		idx = i;
+	}
 
 	i_assert(idx >= array_count(&clients) ||
 		 *(struct client **)array_idx(&clients, idx) == NULL);
