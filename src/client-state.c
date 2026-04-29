@@ -791,7 +791,7 @@ void imap_client_handle_resp_text_code(struct imap_client *client,
 			if (view->storage->uidvalidity != 0 &&
 			    !conf.no_tracking) {
 				e_error(client->client.event,
-					"UIVALIDITY changed: %u -> %u",
+					"UIDVALIDITY changed: %u -> %u",
 					view->storage->uidvalidity,
 					new_uidvalidity);
 			}
