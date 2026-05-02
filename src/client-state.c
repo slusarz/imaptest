@@ -52,6 +52,7 @@ struct state states[] = {
 	{ "NOOP",	  "Noop", LSTATE_AUTH,     0,   0,  FLAG_EXPUNGES },
 	{ "IDLE",	  "Idle", LSTATE_AUTH,     0,   0,  FLAG_EXPUNGES },
 	{ "CHECK",	  "Chec", LSTATE_AUTH,     0,   0,  FLAG_EXPUNGES },
+	{ "UNAUTHENTICATE","UAuth", LSTATE_AUTH,     0,   0,  FLAG_STATECHANGE | FLAG_STATECHANGE_NONAUTH },
 	{ "LOGOUT",	  "Logo", LSTATE_NONAUTH,  100, 0,  FLAG_STATECHANGE | FLAG_STATECHANGE_NONAUTH },
 	{ "DISCONNECT",	  "Disc", LSTATE_NONAUTH,  0,   0,  0 },
 	{ "DELAY",	  "Dela", LSTATE_NONAUTH,  0,   0,  0 },
@@ -1049,6 +1050,18 @@ static int client_handle_cmd_reply(struct imap_client *client, struct command *c
 		if (reply == REPLY_NO)
 			imap_client_try_create_mailbox(client);
 		break;
+	case STATE_UNAUTHENTICATE:
+		if (reply == REPLY_OK) {
+			client->client.login_state = LSTATE_NONAUTH;
+			client->qresync_enabled = FALSE;
+			client->imap4rev2_enabled = FALSE;
+			client->compress_enabled = FALSE;
+			client->compress_enabling = FALSE;
+			imap_client_mailbox_close(client);
+		} else {
+			imap_client_state_error(client, "UNAUTHENTICATE failed");
+		}
+		break;
 	case STATE_LOGOUT:
 		if (client->client.login_state != LSTATE_NONAUTH) {
 			/* untagged BYE sets state to DISCONNECT, so we
@@ -1568,6 +1581,14 @@ int imap_client_plan_send_next_cmd(struct imap_client *client)
 		break;
 	case STATE_CHECK:
 		command_send(client, "CHECK", state_callback);
+		break;
+	case STATE_UNAUTHENTICATE:
+		if ((client->capabilities & CAP_UNAUTHENTICATE) != 0) {
+			command_send(client, "UNAUTHENTICATE", state_callback);
+		} else {
+			/* command isn't supported, skip to next */
+			return 0;
+		}
 		break;
 	case STATE_LOGOUT:
 		client_logout(_client);

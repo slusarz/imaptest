@@ -44,6 +44,7 @@ enum client_state {
         STATE_NOOP,
         STATE_IDLE,
         STATE_CHECK,
+        STATE_UNAUTHENTICATE,
         STATE_LOGOUT,
         STATE_DISCONNECT,
         STATE_DELAY,
