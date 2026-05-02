@@ -13,6 +13,7 @@ enum imap_capability {
 	CAP_UIDPLUS		= 0x10,
 	CAP_IMAP4REV2		= 0x20,
 	CAP_MOVE		= 0x40,
+	CAP_UIDBATCHES		= 0x80,
 };
 
 struct imap_capability_name {
@@ -28,6 +29,7 @@ static const struct imap_capability_name cap_names[] = {
 	{ "UIDPLUS", CAP_UIDPLUS },
 	{ "IMAP4REV2", CAP_IMAP4REV2 },
 	{ "MOVE", CAP_MOVE },
+	{ "UIDBATCHES", CAP_UIDBATCHES },
 
 	{ NULL, 0 }
 };
@@ -95,6 +97,7 @@ struct imap_client {
 	bool idle_done_sent:1;
 	bool preauth:1;
 	bool uid_fetch_performed:1;
+	bool uidbatches_performed:1;
 	bool imap4rev2_enabled:1;
 	bool compress_enabling:1;
 	bool compress_enabled:1;

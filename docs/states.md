@@ -36,6 +36,7 @@ You can disable all except LOGIN, LOGOUT and SELECT states by giving `-` paramet
 | `THREAD`       | `Thre`     | `0`       | "THREAD REFERENCES US-ASCII ALL"                                            |
 | `COPY`         | `Copy`     | `33,5`    | COPY random number of messages                                            |
 | `MOVE`         | `Move`     | `0,0`     | MOVE random number of messages |
+| `UIDBATCHES`   | `Batc`     | `100,100` | "UIDBATCHES \<batch-size\>". The probability specifies how likely it's run (once per mailbox opened). The second parameter is the batch size. |
 | `STORE`        | `Stor`     | `50`      | "STORE \<random-range\> [+-]FLAGS[.SILENT] \<random flags and keywords\>". Only `$Label1..5` are used as keywords. SILENT is used if checkpointing is disabled. \Deleted flags aren't set. |
 | `DELETE`       | `Dele`     | `100`     | "STORE \<random-range\> +FLAGS[.SILENT] \Deleted"                             |
 | `EXPUNGE`      | `Expu`     | `100`     | EXPUNGE                                                                   |

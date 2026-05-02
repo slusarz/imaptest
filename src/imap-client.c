@@ -346,6 +346,8 @@ void imap_client_mailbox_close(struct imap_client *client)
 	}
 	mailbox_view_free(&client->view);
 	client->view = mailbox_view_new(client->storage);
+	client->uid_fetch_performed = FALSE;
+	client->uidbatches_performed = FALSE;
 }
 
 struct mailbox_list_entry *
@@ -444,6 +446,8 @@ int imap_client_handle_untagged(struct imap_client *client,
 	else if (strcmp(str, "VANISHED") == 0) {
 		if (client_vanished(client, args) < 0)
 			return -1;
+	} else if (strcmp(str, "UIDBATCHES") == 0) {
+		/* ignore */
 	} else if (strcmp(str, "THREAD") == 0) {
 		i_free(view->last_thread_reply);
 		view->last_thread_reply = IMAP_ARG_IS_EOL(args) ?

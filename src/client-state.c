@@ -38,6 +38,7 @@ struct state states[] = {
 	{ "STATUS",	  "Stat", LSTATE_AUTH,     50,  0,  FLAG_EXPUNGES },
 	{ "SELECT",	  "Sele", LSTATE_AUTH,     100, 0,  FLAG_STATECHANGE | FLAG_STATECHANGE_SELECTED },
 	{ "UIDFETCH",	  "UIDF", LSTATE_SELECTED, 0,   0,  FLAG_MSGSET | FLAG_EXPUNGES },
+	{ "UIDBATCHES",   "Batc", LSTATE_SELECTED, 100, 100, 0 },
 	{ "FETCH",	  "Fetc", LSTATE_SELECTED, 100, 0,  FLAG_MSGSET },
 	{ "FETCH2",	  "Fet2", LSTATE_SELECTED, 100, 30, FLAG_MSGSET },
 	{ "SEARCH",	  "Sear", LSTATE_SELECTED, 0,   0,  FLAG_MSGSET },
@@ -243,8 +244,10 @@ static enum client_state client_update_plan(struct imap_client *client)
 			if (!do_rand_again(state)) {
 				do {
 					state = client_get_next_state(state);
-				} while (state == STATE_UIDFETCH &&
-					 client->uid_fetch_performed);
+				} while ((state == STATE_UIDFETCH &&
+					  client->uid_fetch_performed) ||
+					 (state == STATE_UIDBATCHES &&
+					  client->uidbatches_performed));
 			}
 			break;
 		}
@@ -1340,6 +1343,14 @@ int imap_client_plan_send_next_cmd(struct imap_client *client)
 		icmd = command_send(client, "UID FETCH 1:* FLAGS", state_callback);
 		client->uid_fetch_performed = TRUE;
 		break;
+	case STATE_UIDBATCHES:
+		client->uidbatches_performed = TRUE;
+		if ((client->capabilities & CAP_UIDBATCHES) == 0)
+			break;
+		str = t_strdup_printf("UIDBATCHES %u",
+				      states[STATE_UIDBATCHES].probability_again);
+		command_send(client, str, state_callback);
+		break;
 	case STATE_FETCH: {
 		static const char *fields[] = {
 			"UID", "FLAGS", "ENVELOPE", "INTERNALDATE",
@@ -1451,7 +1462,7 @@ int imap_client_plan_send_next_cmd(struct imap_client *client)
 
 		seq1 = (i_rand_limit(msgs)) + 1;
 		seq2 = (i_rand_limit(msgs - seq1 + 1));
-		seq2 = seq1 + I_MIN(seq2, 5);
+		seq2 = seq1 + I_MIN(seq2, states[state].probability_again);
 		str = t_strdup_printf("%s %u:%u %s", states[state].name,
 							  seq1, seq2, conf.copy_dest);
 		command_send(client, str, state_callback);
