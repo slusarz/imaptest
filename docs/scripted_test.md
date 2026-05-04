@@ -62,7 +62,7 @@ the test mailbox.
 
 * Default: \<none\>
 
-Sets the username template for connection `<N>` (where `<N>` is a positive integer). This is useful when testing with different accounts on multiple connections. The value is typically set to `${user2}`, `${user3}`, etc. to use the username templates configured via command-line parameters.
+Sets the username template for connection `<N>` (where `<N>` is a positive integer). This is useful when testing with different accounts on multiple connections. The value is typically set to `${user3}`, etc. to use the username templates configured via command-line parameters.
 
 ### `ignore_extra_untagged`
 
@@ -224,7 +224,7 @@ There are also some predefined variables:
 | `$mailbox`     | Mailbox used for testing. `box` command line parameter specifies this. The default is `imaptest`. |
 | `$mailbox_url` | IMAP URL for the mailbox                                                                          |
 
-* If there are multiple connections with different usernames, `$user2`, `$user3`, `$username2`, `$domain2`, etc. are also supported.
+* If there are multiple connections with different usernames, `$user3`, `$username3`, `$domain3`, etc. are also supported.
 
 ## Directives
 

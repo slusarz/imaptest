@@ -67,11 +67,6 @@ You can use multiple random users and domains by giving `%d` in the template. So
 
 The upper limit for users can be set with the [`users`](#users) parameter, and the upper limit for domains can be set with the [`domains`](#domains) parameter.
 
-### `user2`
-
-* Default: \<none\>
-
-Second username. Will be present as `$user2` in scripted tests.
 
 ### `userfile`
 
