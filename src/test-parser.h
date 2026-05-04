@@ -87,7 +87,6 @@ struct test {
 	/* List of commands to run for this test */
 	ARRAY(struct test_command_group *) cmd_groups;
 
-	bool require_user2:1;
 	/* If FALSE, fail if server sends any untagged replies not included
 	   explicitly in the test script. */
 	bool ignore_extra_untagged:1;

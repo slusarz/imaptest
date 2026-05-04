@@ -1208,8 +1208,6 @@ static bool test_have_all_capabilities(struct imap_client *client)
 	char **have = client->capabilities_list;
 	unsigned int i, j;
 
-	if (ctx->test->require_user2 && conf.username2_template == NULL)
-		return FALSE;
 
 	if (req == NULL)
 		return TRUE;

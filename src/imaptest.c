@@ -447,7 +447,6 @@ static void print_help(void)
 "\n"
 "Authentication & Users:\n"
 "  user=TEMPLATE      Username template, e.g. \"u%%d\" or \"u%%d@d%%d\"\n"
-"  user2=TEMPLATE     Second username template\n"
 "  users=RANGE        Range for templated usernames [1-%u]\n"
 "  domains=RANGE      Range for templated domains [1-%u]\n"
 "  userfile=FILE      File of username:password pairs\n"
@@ -771,10 +770,6 @@ int main(int argc ATTR_UNUSED, char *argv[])
 		}
 		if (strcmp(key, "user") == 0) {
 			conf.username_template = value;
-			continue;
-		}
-		if (strcmp(key, "user2") == 0) {
-			conf.username2_template = value;
 			continue;
 		}
 		if (strcmp(key, "userfile") == 0) {

@@ -1,6 +1,5 @@
 capabilities: urlauth
 connections: 2
-user 2: $user2
 
 1 ok fetch 1:2 (uid body[])
 * 1 fetch (uid $uid1 body[] $body1)

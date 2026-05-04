@@ -34,7 +34,7 @@
 #define MAX_INLINE_LITERAL_SIZE (1024*32)
 
 struct settings {
-	const char *username_template, *username2_template;
+	const char *username_template;
 	const char *host, *master_user, *password;
 	const char *mailbox, *copy_dest, *mbox_path;
 	const char *mech;
