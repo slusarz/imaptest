@@ -606,7 +606,11 @@ int main(int argc ATTR_UNUSED, char *argv[])
 			continue;
 		}
 		if (strcmp(key, "seed") == 0) {
-			srand(atoi(value));
+			unsigned int seed;
+
+			if (str_to_uint(value, &seed) < 0)
+				i_fatal("Invalid seed value: %s", value);
+			srand(seed);
 			continue;
 		}
 
