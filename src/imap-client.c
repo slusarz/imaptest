@@ -542,8 +542,9 @@ static int
 imap_client_input_args(struct imap_client *client, const struct imap_arg *args)
 {
 	const char *p, *tag, *tag_status;
-	struct command *cmd;
+	struct command *cmd = NULL;
 	enum command_reply reply;
+	unsigned int global_id, tag_id;
 
 	if (!imap_arg_get_atom(args, &tag))
 		return imap_client_input_error(client, "Broken tag");
@@ -573,9 +574,12 @@ imap_client_input_args(struct imap_client *client, const struct imap_arg *args)
 		return imap_client_input_error(client, "Broken tagged reply");
 
 	p = strchr(tag, '.');
-	cmd = p != NULL &&
-		atoi(t_strdup_until(tag, p)) == (int)client->client.global_id ?
-		command_lookup(client, atoi(t_strcut(p+1, ' '))) : NULL;
+	if (p != NULL &&
+	    str_to_uint(t_strdup_until(tag, p), &global_id) == 0 &&
+	    global_id == client->client.global_id &&
+	    str_to_uint(t_strcut(p+1, ' '), &tag_id) == 0)
+		cmd = command_lookup(client, tag_id);
+
 	if (cmd == NULL) {
 		return imap_client_input_error(client,
 			"Unexpected tagged reply: %s", tag);
