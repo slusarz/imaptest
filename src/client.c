@@ -247,11 +247,10 @@ struct client *client_new_random(unsigned int i, struct mailbox_source *source)
 
 int client_init(struct client *client, unsigned int idx,
 		struct user *user, struct user_client *uc,
-		const struct ip_addr *ips, unsigned int ips_count)
+		const struct ip_addr *ip)
 {
 	client->ssl_hostname = NULL;
 
-	const struct ip_addr *ip;
 	int fd;
 
 	if (idx < array_count(&clients) &&
@@ -288,17 +287,6 @@ int client_init(struct client *client, unsigned int idx,
 		t_strdup_printf("%s[%u]: ", user->username,
 				client->global_id));
 
-	/* Use provided IPs (e.g. from per-protocol host resolution),
-	   or fall back to global conf.ips */
-	if (ips != NULL && ips_count > 0) {
-		ip = &ips[conf.ip_idx % ips_count];
-		if (++conf.ip_idx == conf.ips_count)
-			conf.ip_idx = 0;
-	} else {
-		ip = &conf.ips[conf.ip_idx];
-		if (++conf.ip_idx == conf.ips_count)
-			conf.ip_idx = 0;
-	}
 	fd = net_connect_ip(ip, client->port, NULL);
 
 	if (fd < 0) {

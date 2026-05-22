@@ -89,10 +89,11 @@ struct profile {
 	 * global lmtp_port setting. */
 	unsigned int lmtp_port;
 
-	/* Resolved IPs for per-protocol host overrides (set at connection time) */
 	ARRAY_TYPE(ip_addr_array) imap_ips;
 	ARRAY_TYPE(ip_addr_array) pop3_ips;
 	ARRAY_TYPE(ip_addr_array) lmtp_ips;
+	unsigned int imap_ip_idx;
+	unsigned int pop3_ip_idx;
 	unsigned int lmtp_ip_idx;
 
 	unsigned int lmtp_max_parallel_count;
