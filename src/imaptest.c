@@ -844,12 +844,29 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	if (testpath != NULL && strchr(conf.username_template, '%') != NULL)
 		i_fatal("Don't use %% in username with tests");
 
-	if (hostip == NULL)
-		hostip = conf.host;
-	if ((ret = net_gethostbyname(hostip, &conf.ips,
-				     &conf.ips_count)) != 0) {
-		i_fatal("net_gethostbyname(%s) failed: %s",
-			hostip, net_gethosterror(ret));
+	if (profile == NULL) {
+		if (hostip == NULL)
+			hostip = conf.host;
+		if ((ret = net_gethostbyname(hostip, &conf.ips,
+					     &conf.ips_count)) != 0) {
+			i_fatal("net_gethostbyname(%s) failed: %s",
+				hostip, net_gethosterror(ret));
+		}
+	} else {
+		if (hostip == NULL)
+			hostip = conf.host;
+		if (!profile_resolve_ip(profile->imap_host != NULL ?
+					profile->imap_host : hostip,
+					&profile->imap_ips))
+			i_fatal("Failed to resolve IMAP host");
+		if (!profile_resolve_ip(profile->pop3_host != NULL ?
+					profile->pop3_host : hostip,
+					&profile->pop3_ips))
+			i_fatal("Failed to resolve POP3 host");
+		if (!profile_resolve_ip(profile->lmtp_host != NULL ?
+					profile->lmtp_host : hostip,
+					&profile->lmtp_ips))
+			i_fatal("Failed to resolve LMTP host");
 	}
 
 	lib_set_clean_exit(FALSE);
