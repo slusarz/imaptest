@@ -6,12 +6,16 @@
 #include "settings-parser.h"
 #include "str-parse.h"
 #include "client-state.h"
+#include "settings.h"
 #include "profile.h"
 
 enum parser_state {
 	PARSER_STATE_ROOT,
 	PARSER_STATE_CLIENT,
-	PARSER_STATE_USER
+	PARSER_STATE_USER,
+	PARSER_STATE_IMAP,
+	PARSER_STATE_POP3,
+	PARSER_STATE_LMTP
 };
 
 struct profile_parser {
@@ -100,6 +104,33 @@ const struct setting_parser_info profile_user_setting_parser_info = {
 	.struct_size = sizeof(struct profile_user),
 };
 
+struct profile_hostport {
+	const char *host;
+	unsigned int port;
+};
+
+#undef DEF
+#define DEF(type, name) \
+	SETTING_DEFINE_STRUCT_##type(#name, name, struct profile_hostport)
+
+static const struct setting_define profile_hostport_setting_defines[] = {
+	DEF(STR, host),
+	DEF(UINT, port),
+	SETTING_DEFINE_LIST_END
+};
+
+const struct profile_hostport profile_hostport_default_settings = {
+	.host = NULL,
+	.port = (unsigned int)-1
+};
+
+const struct setting_parser_info profile_hostport_setting_parser_info = {
+	.name = "profile_hostport",
+	.defines = profile_hostport_setting_defines,
+	.defaults = &profile_hostport_default_settings,
+	.struct_size = sizeof(struct profile_hostport),
+};
+
 #define IS_WHITE(c) ((c) == ' ' || (c) == '\t')
 
 static char *line_remove_whitespace(char *line)
@@ -152,10 +183,41 @@ try_parse_section(char *line, const char **key_r, const char **value_r)
 	return TRUE;
 }
 
+static void parser_close_hostport(struct profile_parser *parser,
+						const struct profile_hostport *hp)
+{
+	unsigned int port = hp->port;
+
+	if (port == (unsigned int)-1)
+		port = 0;
+	else if (port == 0 || port > 65535) {
+		i_fatal("Invalid port %u at line %u: port must be 1-65535",
+			port, parser->linenum);
+	}
+
+	switch (parser->state) {
+	case PARSER_STATE_IMAP:
+		parser->profile->imap_host = hp->host;
+		parser->profile->imap_port = port;
+		break;
+	case PARSER_STATE_POP3:
+		parser->profile->pop3_host = hp->host;
+		parser->profile->pop3_port = port;
+		break;
+	case PARSER_STATE_LMTP:
+		parser->profile->lmtp_host = hp->host;
+		parser->profile->lmtp_port = port;
+		break;
+	default:
+		i_unreached();
+	}
+}
+
 static void parser_close(struct profile_parser *parser)
 {
 	struct profile_client *client;
 	struct profile_user *user;
+	const struct profile_hostport *hp;
 
 	switch (parser->state) {
 	case PARSER_STATE_ROOT:
@@ -170,6 +232,12 @@ static void parser_close(struct profile_parser *parser)
 		user->profile = parser->profile;
 		user->percentage = parser->cur_count;
 		array_append(&parser->users, &user, 1);
+		break;
+	case PARSER_STATE_IMAP:
+	case PARSER_STATE_POP3:
+	case PARSER_STATE_LMTP:
+		hp = settings_parser_get_set(parser->cur_parser);
+		parser_close_hostport(parser, hp);
 		break;
 	}
 	settings_parser_unref(&parser->cur_parser);
@@ -197,6 +265,14 @@ static void parser_add_user(struct profile_parser *parser)
 	user->username_start_index = 1;
 }
 
+static void parser_add_hostport(struct profile_parser *parser,
+				enum parser_state state)
+{
+	parser->state = state;
+	parser->cur_parser = settings_parser_init(parser->profile->pool,
+		&profile_hostport_setting_parser_info, 0);
+}
+
 static void profile_parse_line_root(struct profile_parser *parser, char *line)
 {
 	const char *key, *value, *error;
@@ -209,6 +285,7 @@ static void profile_parse_line_root(struct profile_parser *parser, char *line)
 					key, parser->linenum, value);
 			}
 		} else if (strcmp(key, "lmtp_port") == 0) {
+			/* Deprecated: use lmtp {} { port = ... } instead. */
 			if (str_to_uint(value, &parser->profile->lmtp_port) < 0 ||
 			    parser->profile->lmtp_port == 0 ||
 			    parser->profile->lmtp_port > 65535) {
@@ -239,12 +316,31 @@ static void profile_parse_line_root(struct profile_parser *parser, char *line)
 		parser_add_client(parser);
 	else if (strcmp(key, "user") == 0)
 		parser_add_user(parser);
+	else if (strcmp(key, "imap") == 0)
+		parser_add_hostport(parser, PARSER_STATE_IMAP);
+	else if (strcmp(key, "pop3") == 0)
+		parser_add_hostport(parser, PARSER_STATE_POP3);
+	else if (strcmp(key, "lmtp") == 0)
+		parser_add_hostport(parser, PARSER_STATE_LMTP);
 	else
 		i_fatal("Unknown section at line %u: %s", parser->linenum, key);
 
-	if (value[0] != '\0') {
-		if (settings_parse_keyvalue(parser->cur_parser, "name", value) != 1)
+	if (value[0] != '\0' && value[0] != '{') {
+		switch (parser->state) {
+		case PARSER_STATE_CLIENT:
+		case PARSER_STATE_USER:
+			if (settings_parse_keyvalue(parser->cur_parser, "name", value) != 1)
+				i_unreached();
+			break;
+		case PARSER_STATE_IMAP:
+		case PARSER_STATE_POP3:
+		case PARSER_STATE_LMTP:
+			if (settings_parse_keyvalue(parser->cur_parser, "host", value) != 1)
+				i_unreached();
+			break;
+		default:
 			i_unreached();
+		}
 	}
 }
 
@@ -301,7 +397,7 @@ static void profile_finish(struct profile_parser *parser)
 	unsigned int percentage_count;
 
 	if (parser->profile->lmtp_port == 0)
-		i_fatal("lmtp_port setting missing");
+		parser->profile->lmtp_port = LMTP_DEFAULT_PORT;
 	if (parser->profile->total_user_count == 0)
 		i_fatal("total_user_count setting missing");
 	if (array_count(&parser->clients) == 0)
@@ -346,6 +442,9 @@ struct profile *profile_parse(const char *path)
 	parser.profile = profile;
 	p_array_init(&parser.clients, pool, 4);
 	p_array_init(&parser.users, pool, 4);
+	p_array_init(&profile->imap_ips, pool, 4);
+	p_array_init(&profile->pop3_ips, pool, 4);
+	p_array_init(&profile->lmtp_ips, pool, 4);
 
 	input = i_stream_create_file(path, (size_t)-1);
 	while ((line = i_stream_read_next_line(input)) != NULL) T_BEGIN {
@@ -358,9 +457,10 @@ struct profile *profile_parse(const char *path)
 			profile_parse_line_root(&parser, line);
 			break;
 		case PARSER_STATE_CLIENT:
-			profile_parse_line_section(&parser, line);
-			break;
 		case PARSER_STATE_USER:
+		case PARSER_STATE_IMAP:
+		case PARSER_STATE_POP3:
+		case PARSER_STATE_LMTP:
 			profile_parse_line_section(&parser, line);
 			break;
 		}
