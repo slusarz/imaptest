@@ -829,6 +829,8 @@ int main(int argc ATTR_UNUSED, char *argv[])
 
 		i_fatal("Unknown arg: %s", *argv);
 	}
+	if (profile_running && conf.port != 0)
+		i_warning("port= is deprecated in profile mode (used as IMAP port only)");
 	if (conf.mailbox == NULL)
 		conf.mailbox = testpath == NULL ? "INBOX" : "imaptest";
 
@@ -872,8 +874,8 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	mailboxes_deinit();
 	users_deinit();
 	if (profile != NULL) {
-		pool_unref(&profile->pool);
 		profile_deinit();
+		pool_unref(&profile->pool);
 	}
 	mailbox_source_unref(&mailbox_source);
 
