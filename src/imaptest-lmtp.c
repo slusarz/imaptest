@@ -11,6 +11,7 @@
 #include "smtp-client-transaction.h"
 #include "settings.h"
 #include "mailbox-source.h"
+#include "net.h"
 #include "client.h"
 #include "client-state.h"
 #include "imaptest-lmtp.h"
@@ -105,12 +106,12 @@ static void imaptest_lmtp_timeout(struct imaptest_lmtp_delivery *d)
 
 void imaptest_lmtp_send(unsigned int port, unsigned int lmtp_max_parallel_count,
 			const struct smtp_address *rcpt_to,
-			struct mailbox_source *source)
+			struct mailbox_source *source,
+			const struct ip_addr *lmtp_ip)
 {
 	struct smtp_client_settings lmtp_set;
 	struct imaptest_lmtp_delivery *d;
 	uoff_t vsize;
-	const struct ip_addr *ip;
 	time_t t;
 	int tz;
 
@@ -138,13 +139,8 @@ void imaptest_lmtp_send(unsigned int port, unsigned int lmtp_max_parallel_count,
 	d->rcpt_to = smtp_address_clone(default_pool, rcpt_to);
 	i_gettimeofday(&d->tv_start);
 
-
-	ip = &conf.ips[conf.ip_idx];
-	if (++conf.ip_idx == conf.ips_count)
-		conf.ip_idx = 0;
-
 	d->lmtp_conn = smtp_client_connection_create(lmtp_client,
-		SMTP_PROTOCOL_LMTP, net_ip2addr(ip), port,
+		SMTP_PROTOCOL_LMTP, net_ip2addr(lmtp_ip), port,
 		SMTP_CLIENT_SSL_MODE_NONE, NULL);
 	smtp_client_connection_connect(d->lmtp_conn, NULL, NULL);
 
