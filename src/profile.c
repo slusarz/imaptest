@@ -13,6 +13,8 @@
 #include "mailbox-source.h"
 #include "commands.h"
 #include "imaptest-lmtp.h"
+#include "net.h"
+#include "settings.h"
 #include "profile.h"
 
 #include <stdlib.h>
@@ -26,6 +28,7 @@
 
 static time_t users_min_timestamp = INT_MAX;
 static struct timeout *to_users;
+static struct profile *current_profile = NULL;
 
 static void user_mailbox_action_move(struct imap_client *client,
 				     const char *mailbox, uint32_t uid);
@@ -404,6 +407,8 @@ static void deliver_new_mail(struct user *user, const char *mailbox)
 {
 	struct smtp_address *rcpt_to;
 	const char *error;
+	const struct ip_addr *lmtp_ip;
+	struct profile *profile = user->profile->profile;
 
 	if (smtp_address_parse_username(pool_datastack_create(), user->username,
 		&rcpt_to, &error) < 0) {
@@ -415,11 +420,51 @@ static void deliver_new_mail(struct user *user, const char *mailbox)
 			t_strdup_printf("%s+%s", rcpt_to->localpart, mailbox);
 	}
 
-	imaptest_lmtp_send(user->profile->profile->lmtp_port,
-			   user->profile->profile->lmtp_max_parallel_count,
-			   rcpt_to, mailbox_source);
+	/* Resolve per-protocol host IPs at connection time */
+	if (profile->lmtp_host != NULL && array_is_empty(&profile->lmtp_ips))
+		(void)profile_resolve_ip(profile->lmtp_host, &profile->lmtp_ips);
+
+	if (array_not_empty(&profile->lmtp_ips)) {
+		lmtp_ip = array_idx(&profile->lmtp_ips,
+			profile->lmtp_ip_idx % array_count(&profile->lmtp_ips));
+		profile->lmtp_ip_idx++;
+	} else {
+		/* Do not increment conf.ip_idx for LMTP fallback to avoid
+		   interfering with IMAP/POP3 client rotation. */
+		lmtp_ip = &conf.ips[conf.ip_idx];
+	}
+
+	imaptest_lmtp_send(
+		profile->lmtp_port,
+		profile->lmtp_max_parallel_count,
+		rcpt_to,
+		mailbox_source,
+		lmtp_ip);
 }
 
+bool profile_resolve_ip(const char *host,
+                               ARRAY_TYPE(ip_addr_array) *ips)
+{
+	struct ip_addr *resolved_ips;
+	unsigned int resolved_count;
+	int ret;
+
+	/*
+	 * This function is only called from the single-threaded event loop
+	 * (deliver_new_mail() in this file, and imap/pop3 client connect paths).
+	 * No synchronization is required.
+	 */
+	ret = net_gethostbyname(host, &resolved_ips, &resolved_count);
+	if (ret != 0) {
+		i_warning("net_gethostbyname(%s) failed: %s",
+			  host, net_gethosterror(ret));
+		return false;
+	}
+
+	array_append(ips, resolved_ips, resolved_count);
+	i_free(resolved_ips);
+	return true;
+}
 static bool user_client_is_connected(struct user_client *uc)
 {
 	struct client *client;
@@ -723,6 +768,8 @@ users_add_from_user_profile(const struct profile_user *user_profile,
 void profile_add_users(struct profile *profile, ARRAY_TYPE(user) *users,
 		       struct mailbox_source *source)
 {
+	current_profile = profile;
+
 	struct profile_user *user;
 
 	i_array_init(users, 128);
@@ -732,6 +779,18 @@ void profile_add_users(struct profile *profile, ARRAY_TYPE(user) *users,
 
 void profile_deinit(void)
 {
+	struct profile *p;
+
 	if (to_users != NULL)
 		timeout_remove(&to_users);
+
+	if (current_profile == NULL)
+		return;
+
+	p = current_profile;
+	current_profile = NULL;
+
+	array_free(&p->imap_ips);
+	array_free(&p->pop3_ips);
+	array_free(&p->lmtp_ips);
 }

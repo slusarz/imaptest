@@ -181,9 +181,9 @@ static void client_wait_connect(struct client *client)
 			if (ssl_iostream_context_init_client(&conf.ssl_set, &ssl_ctx, &error) < 0)
 				i_fatal("Failed to initialize SSL context: %s", error);
 		}
-		if (io_stream_create_ssl_client(ssl_ctx, conf.host, NULL, 0,
-						&client->input, &client->output,
-						&client->ssl_iostream, &error) < 0)
+		if (io_stream_create_ssl_client(ssl_ctx, client->ssl_hostname,
+				NULL, 0, &client->input, &client->output,
+				&client->ssl_iostream, &error) < 0)
 			i_fatal("Couldn't create SSL iostream: %s", error);
 		(void)ssl_iostream_handshake(client->ssl_iostream);
 	}
@@ -246,8 +246,11 @@ struct client *client_new_random(unsigned int i, struct mailbox_source *source)
 }
 
 int client_init(struct client *client, unsigned int idx,
-		struct user *user, struct user_client *uc)
+		struct user *user, struct user_client *uc,
+		const struct ip_addr *ips, unsigned int ips_count)
 {
+	client->ssl_hostname = NULL;
+
 	const struct ip_addr *ip;
 	int fd;
 
@@ -285,10 +288,18 @@ int client_init(struct client *client, unsigned int idx,
 		t_strdup_printf("%s[%u]: ", user->username,
 				client->global_id));
 
-	ip = &conf.ips[conf.ip_idx];
+	/* Use provided IPs (e.g. from per-protocol host resolution),
+	   or fall back to global conf.ips */
+	if (ips != NULL && ips_count > 0) {
+		ip = &ips[conf.ip_idx % ips_count];
+		if (++conf.ip_idx == conf.ips_count)
+			conf.ip_idx = 0;
+	} else {
+		ip = &conf.ips[conf.ip_idx];
+		if (++conf.ip_idx == conf.ips_count)
+			conf.ip_idx = 0;
+	}
 	fd = net_connect_ip(ip, client->port, NULL);
-	if (++conf.ip_idx == conf.ips_count)
-		conf.ip_idx = 0;
 
 	if (fd < 0) {
 		e_error(client->event, "connect() failed: %m");
@@ -376,6 +387,7 @@ bool client_unref(struct client *client, bool reconnect)
 
 	client->v.free(client);
 
+	i_free(client->ssl_hostname);
 	o_stream_destroy(&client->output);
 	i_stream_destroy(&client->input);
 	if (client->ssl_iostream != NULL)
