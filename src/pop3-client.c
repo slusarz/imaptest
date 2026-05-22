@@ -417,11 +417,48 @@ pop3_client_new(unsigned int idx, struct user *user, struct user_client *uc,
 		struct pop3_client **client_r)
 {
 	struct pop3_client *client;
+	const char *host;
+	unsigned int port;
+	const struct profile *profile;
+	int ret;
 
 	client = i_new(struct pop3_client, 1);
 	client->client.protocol = CLIENT_PROTOCOL_POP3;
-	client->client.port = conf.port != 0 ? conf.port : 110;
-	if (client_init(&client->client, idx, user, uc) < 0) {
+
+	/* Per-protocol port override */
+	profile = (uc != NULL && uc->user != NULL && uc->user->profile != NULL) ?
+		uc->user->profile->profile : NULL;
+	if (profile != NULL && profile->pop3_port != 0)
+		port = profile->pop3_port;
+	else if (conf.port != 0)
+		port = conf.port;
+	else
+		port = POP3_DEFAULT_PORT;
+	client->client.port = port;
+
+	/* SSL hostname: per-protocol override or global */
+	if (profile != NULL && profile->pop3_host != NULL)
+		host = profile->pop3_host;
+	else
+		host = conf.host;
+	i_assert(host != NULL);
+	client->client.ssl_hostname = i_strdup(host);
+
+	/* Resolve per-protocol host IPs at connection time */
+	if (profile != NULL && profile->pop3_host != NULL &&
+	    array_is_empty(&profile->pop3_ips)) {
+		struct profile *p = uc->user->profile->profile;
+		(void)profile_resolve_ip(profile->pop3_host, &p->pop3_ips);
+	}
+
+	if (profile != NULL && array_not_empty(&profile->pop3_ips)) {
+		ret = client_init(&client->client, idx, user, uc,
+			array_idx(&profile->pop3_ips, 0),
+			array_count(&profile->pop3_ips));
+	} else {
+		ret = client_init(&client->client, idx, user, uc,
+			NULL, 0);
+	}	if (ret < 0) {
 		i_free(client);
 		return -1;
 	}

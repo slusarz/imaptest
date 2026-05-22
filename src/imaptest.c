@@ -458,7 +458,7 @@ static void print_help(void)
 "Connection & Network:\n"
 "  host=HOST          Host to connect to [%s]\n"
 "  hostip=IP          Override IP address for host\n"
-"  port=PORT          Port to connect to (default: 143/110)\n"
+"  port=PORT          Port to connect to (default: %u/%u)\n"
 "  ssl                Activate SSL/TLS\n"
 "  ssl=any-cert       Activate SSL/TLS and allow invalid certificates\n"
 "  ssl_ca_file=FILE   Load CA certificates from file\n"
@@ -496,6 +496,7 @@ static void print_help(void)
 "  -                  Set all probabilities to 0%% except LOGIN, LOGOUT, SELECT\n"
 "  <state>[=n[,m]]    Set state's probability to n%% and repeat probability to m%%\n",
 	USER_RAND, DOMAIN_RAND, HOST,
+	IMAP_DEFAULT_PORT, POP3_DEFAULT_PORT,
 	CLIENTS_COUNT, MESSAGE_COUNT_THRESHOLD);
 }
 static void

@@ -791,11 +791,48 @@ imap_client_new(unsigned int idx, struct user *user, struct user_client *uc,
 {
 	struct imap_client *client;
 	const char *mailbox;
+	const char *host;
+	unsigned int port;
+	const struct profile *profile;
+	int ret;
 
 	client = i_new(struct imap_client, 1);
 	client->client.protocol = CLIENT_PROTOCOL_IMAP;
-	client->client.port = conf.port != 0 ? conf.port : 143;
-	if (client_init(&client->client, idx, user, uc) < 0) {
+
+	/* Per-protocol port override */
+	profile = (uc != NULL && uc->user != NULL && uc->user->profile != NULL) ?
+		uc->user->profile->profile : NULL;
+	if (profile != NULL && profile->imap_port != 0)
+		port = profile->imap_port;
+	else if (conf.port != 0)
+		port = conf.port;
+	else
+		port = IMAP_DEFAULT_PORT;
+	client->client.port = port;
+
+	/* SSL hostname: per-protocol override or global */
+	if (profile != NULL && profile->imap_host != NULL)
+		host = profile->imap_host;
+	else
+		host = conf.host;
+	i_assert(host != NULL);
+	client->client.ssl_hostname = i_strdup(host);
+
+	/* Resolve per-protocol host IPs at connection time */
+	if (profile != NULL && profile->imap_host != NULL &&
+	    array_is_empty(&profile->imap_ips)) {
+		struct profile *p = uc->user->profile->profile;
+		(void)profile_resolve_ip(profile->imap_host, &p->imap_ips);
+	}
+
+	if (profile != NULL && array_not_empty(&profile->imap_ips)) {
+		ret = client_init(&client->client, idx, user, uc,
+			array_idx(&profile->imap_ips, 0),
+			array_count(&profile->imap_ips));
+	} else {
+		ret = client_init(&client->client, idx, user, uc,
+			NULL, 0);
+	}	if (ret < 0) {
 		i_free(client);
 		return -1;
 	}
