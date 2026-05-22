@@ -9,9 +9,9 @@
 #include "profile.h"
 
 enum parser_state {
-	STATE_ROOT,
-	STATE_CLIENT,
-	STATE_USER
+	PARSER_STATE_ROOT,
+	PARSER_STATE_CLIENT,
+	PARSER_STATE_USER
 };
 
 struct profile_parser {
@@ -158,14 +158,14 @@ static void parser_close(struct profile_parser *parser)
 	struct profile_user *user;
 
 	switch (parser->state) {
-	case STATE_ROOT:
+	case PARSER_STATE_ROOT:
 		i_unreached();
-	case STATE_CLIENT:
+	case PARSER_STATE_CLIENT:
 		client = settings_parser_get_set(parser->cur_parser);
 		client->percentage = parser->cur_count;
 		array_append(&parser->clients, &client, 1);
 		break;
-	case STATE_USER:
+	case PARSER_STATE_USER:
 		user = settings_parser_get_set(parser->cur_parser);
 		user->profile = parser->profile;
 		user->percentage = parser->cur_count;
@@ -173,13 +173,13 @@ static void parser_close(struct profile_parser *parser)
 		break;
 	}
 	settings_parser_unref(&parser->cur_parser);
-	parser->state = STATE_ROOT;
+	parser->state = PARSER_STATE_ROOT;
 	parser->cur_count = 0;
 }
 
 static void parser_add_client(struct profile_parser *parser)
 {
-	parser->state = STATE_CLIENT;
+	parser->state = PARSER_STATE_CLIENT;
 	parser->cur_parser = settings_parser_init(parser->profile->pool,
 		&profile_client_setting_parser_info, 0);
 }
@@ -188,7 +188,7 @@ static void parser_add_user(struct profile_parser *parser)
 {
 	struct profile_user *user;
 
-	parser->state = STATE_USER;
+	parser->state = PARSER_STATE_USER;
 	parser->cur_parser = settings_parser_init(parser->profile->pool,
 		&profile_user_setting_parser_info, 0);
 
@@ -354,13 +354,13 @@ struct profile *profile_parse(const char *path)
 		if (line[0] == '\0' || line[0] == '#')
 			;
 		else switch (parser.state) {
-		case STATE_ROOT:
+		case PARSER_STATE_ROOT:
 			profile_parse_line_root(&parser, line);
 			break;
-		case STATE_CLIENT:
+		case PARSER_STATE_CLIENT:
 			profile_parse_line_section(&parser, line);
 			break;
-		case STATE_USER:
+		case PARSER_STATE_USER:
 			profile_parse_line_section(&parser, line);
 			break;
 		}
