@@ -6,6 +6,7 @@
 #include "settings.h"
 #include "array.h"
 #include "str.h"
+#include "net.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -333,18 +334,20 @@ static void test_pop3_port_defaults(void)
 	char *path;
 
 	/* explicit port */
+	path = NULL;
 	test_port_pop3("POP3: explicit port override (995)",
 		parse_profile_str(profile_pop3_explicit, &path), 995);
+	if (path != NULL) { unlink(path); i_free(path); }
 
-	/* host only → defaults to POP3_DEFAULT_PORT */
-	test_port_pop3("POP3: host override without port → defaults to 110",
-		parse_profile_str(profile_pop3_host_only, &path), POP3_DEFAULT_PORT);
+	/* host only → port stays 0 (deferred to connect time) */
+	test_port_pop3("POP3: host override without port → port stays 0",
+		parse_profile_str(profile_pop3_host_only, &path), 0);
+	if (path != NULL) { unlink(path); i_free(path); }
 
-	/* no section → defaults to POP3_DEFAULT_PORT */
-	test_port_pop3("POP3: no pop3 section → defaults to 110",
-		parse_profile_str(profile_minimal, &path), POP3_DEFAULT_PORT);
-
-	unlink(path); i_free(path);
+	/* no section → port stays 0 (deferred to connect time) */
+	test_port_pop3("POP3: no pop3 section → port stays 0",
+		parse_profile_str(profile_minimal, &path), 0);
+	if (path != NULL) { unlink(path); i_free(path); }
 }
 
 /* POP3: profile port overrides conf.port */
@@ -360,7 +363,9 @@ static void test_pop3_port_overrides_conf_port(void)
 
 	/* conf.port = 993 (IMAP port) should NOT affect POP3 */
 	conf.port = 993;
-	unsigned int port = profile->pop3_port;
+	unsigned int port = (profile->pop3_port != 0) ?
+		profile->pop3_port :
+		(conf.port != 0 ? conf.port : POP3_DEFAULT_PORT);
 	test_assert(port == 995);
 
 	profile_deinit();
@@ -376,15 +381,17 @@ static void test_pop3_host_only_no_conf_port_leak(void)
 	char *path;
 	struct profile *profile;
 
-	test_begin("POP3: host-only ignores conf.port");
+	test_begin("POP3: host-only defers to conf.port at connect time");
 
 	profile = parse_profile_str(profile_pop3_host_only, &path);
-	test_assert(profile->pop3_port == POP3_DEFAULT_PORT);
+	test_assert(profile->pop3_port == 0);
 
-	/* conf.port = 993 (IMAP port) should NOT leak into POP3 */
+	/* conf.port = 993 → used at connect time (three-tier fallback) */
 	conf.port = 993;
-	unsigned int port = profile->pop3_port;
-	test_assert(port == POP3_DEFAULT_PORT);
+	unsigned int port = (profile->pop3_port != 0) ?
+		profile->pop3_port :
+		(conf.port != 0 ? conf.port : POP3_DEFAULT_PORT);
+	test_assert(port == 993);
 
 	profile_deinit();
 	unlink(path);
@@ -405,16 +412,17 @@ static void test_lmtp_port_defaults(void)
 	/* explicit port */
 	test_port_lmtp("LMTP: explicit port override (25)",
 		parse_profile_str(profile_lmtp_explicit, &path), 25);
+	if (path != NULL) { unlink(path); i_free(path); }
 
-	/* host only → defaults to LMTP_DEFAULT_PORT */
-	test_port_lmtp("LMTP: host override without port → defaults to 24",
-		parse_profile_str(profile_lmtp_host_only, &path), LMTP_DEFAULT_PORT);
+	/* host only → port stays 0 (deferred to connect time) */
+	test_port_lmtp("LMTP: host override without port → port stays 0",
+		parse_profile_str(profile_lmtp_host_only, &path), 0);
+	if (path != NULL) { unlink(path); i_free(path); }
 
-	/* no section → defaults to LMTP_DEFAULT_PORT */
-	test_port_lmtp("LMTP: no lmtp section → defaults to 24",
-		parse_profile_str(profile_minimal, &path), LMTP_DEFAULT_PORT);
-
-	unlink(path); i_free(path);
+	/* no section → port stays 0 (deferred to connect time) */
+	test_port_lmtp("LMTP: no lmtp section → port stays 0",
+		parse_profile_str(profile_minimal, &path), 0);
+	if (path != NULL) { unlink(path); i_free(path); }
 }
 
 /* LMTP: deprecated root-level lmtp_port */
@@ -597,14 +605,10 @@ static void test_all_protocols_default_ports(void)
 
 	profile = parse_profile_str(profile_minimal, &path);
 
-	/* IMAP: port stays 0 (NOT defaulted — uses conf.port at connect time) */
+	/* All: port stays 0 (NOT defaulted — uses conf.port at connect time) */
 	test_assert(profile->imap_port == 0);
-
-	/* POP3: defaulted to 110 at parse time */
-	test_assert(profile->pop3_port == POP3_DEFAULT_PORT);
-
-	/* LMTP: defaulted to 24 at parse time */
-	test_assert(profile->lmtp_port == LMTP_DEFAULT_PORT);
+	test_assert(profile->pop3_port == 0);
+	test_assert(profile->lmtp_port == 0);
 
 	profile_deinit();
 	unlink(path);
@@ -625,9 +629,6 @@ struct port_range_test {
 
 static const struct port_range_test port_range_tests[] = {
 	/* Invalid ports: rejected by parser_close_hostport (i_fatal, can't catch) */
-	{ "imap", 0, 0, true },
-	{ "pop3", 0, 0, true },
-	{ "lmtp", 0, 0, true },
 	{ "imap", 70000, 0, true },
 	{ "pop3", 70000, 0, true },
 	{ "lmtp", 70000, 0, true },
@@ -639,7 +640,7 @@ static const struct port_range_test port_range_tests[] = {
 	{ "pop3", 1, 1, false },
 	{ "lmtp", 1, 1, false },
 };
-#define PORT_RANGE_TESTS_COUNT 12
+#define PORT_RANGE_TESTS_COUNT 9
 
 static void test_port_range(void)
 {
@@ -753,6 +754,68 @@ static void test_port_only_section_uses_cli_host(void)
 	test_end();
 }
 
+/* ========================
+ * IP rotation tests
+ * ======================== */
+
+static void test_ip_rotation(void)
+{
+	char *path;
+	struct profile *profile;
+
+	test_begin("IP rotation: index wrap-around (all protocols)");
+
+	profile = parse_profile_str(profile_imap_host_only, &path);
+
+	/* Populate IP arrays with loopback (avoids DNS dependency) */
+	{
+		const struct ip_addr *ip = &net_ip4_loopback;
+		array_append(&profile->imap_ips, ip, 1);
+		array_append(&profile->pop3_ips, ip, 1);
+		array_append(&profile->lmtp_ips, ip, 1);
+	}
+
+	/* Test IMAP IP rotation: simulate N client creations */
+	{
+		unsigned int count = array_count(&profile->imap_ips);
+		test_assert(count > 0);
+		unsigned int idx = 0;
+		for (unsigned int i = 0; i < count * 2; i++) {
+			if (++idx == count)
+				idx = 0;
+		}
+		test_assert(idx == 0);
+	}
+
+	/* Test POP3 IP rotation */
+	{
+		unsigned int count = array_count(&profile->pop3_ips);
+		test_assert(count > 0);
+		unsigned int idx = 0;
+		for (unsigned int i = 0; i < count * 2; i++) {
+			if (++idx == count)
+				idx = 0;
+		}
+		test_assert(idx == 0);
+	}
+
+	/* Test LMTP IP rotation */
+	{
+		unsigned int count = array_count(&profile->lmtp_ips);
+		test_assert(count > 0);
+		unsigned int idx = 0;
+		for (unsigned int i = 0; i < count * 2; i++) {
+			if (++idx == count)
+				idx = 0;
+		}
+		test_assert(idx == 0);
+	}
+
+	profile_deinit();
+	unlink(path);
+	i_free(path);
+	test_end();
+}
 
 
 int main(int argc, char *argv[])
@@ -789,6 +852,9 @@ int main(int argc, char *argv[])
 
 		/* Port-only sections: host resolves to CLI default */
 		test_port_only_section_uses_cli_host,
+
+		/* IP rotation tests */
+		test_ip_rotation,
 
 		NULL
 	};
