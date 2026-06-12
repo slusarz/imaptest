@@ -855,18 +855,30 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	} else {
 		if (hostip == NULL)
 			hostip = conf.host;
-		if (!profile_resolve_ip(profile->imap_host != NULL ?
-					profile->imap_host : hostip,
-					&profile->imap_ips))
-			i_fatal("Failed to resolve IMAP host");
-		if (!profile_resolve_ip(profile->pop3_host != NULL ?
-					profile->pop3_host : hostip,
-					&profile->pop3_ips))
-			i_fatal("Failed to resolve POP3 host");
-		if (!profile_resolve_ip(profile->lmtp_host != NULL ?
-					profile->lmtp_host : hostip,
-					&profile->lmtp_ips))
-			i_fatal("Failed to resolve LMTP host");
+		{
+			bool dns_ok = TRUE;
+			const char *failed_hosts = "";
+			if (!profile_resolve_ip(profile->imap_host != NULL ?
+						profile->imap_host : hostip,
+						&profile->imap_ips)) {
+				dns_ok = FALSE;
+				failed_hosts = "IMAP";
+			}
+			if (!profile_resolve_ip(profile->pop3_host != NULL ?
+						profile->pop3_host : hostip,
+						&profile->pop3_ips)) {
+				dns_ok = FALSE;
+				failed_hosts = "POP3";
+			}
+			if (!profile_resolve_ip(profile->lmtp_host != NULL ?
+						profile->lmtp_host : hostip,
+						&profile->lmtp_ips)) {
+				dns_ok = FALSE;
+				failed_hosts = "LMTP";
+			}
+			if (!dns_ok)
+				i_fatal("Failed to resolve %s host (see errors above)", failed_hosts);
+		}
 	}
 
 	lib_set_clean_exit(FALSE);

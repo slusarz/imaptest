@@ -157,6 +157,9 @@ void imaptest_lmtp_send(struct profile *profile,
 			conf.ip_idx = 0;
 	}
 
+	if (port == 0)
+		port = conf.port != 0 ? conf.port : LMTP_DEFAULT_PORT;
+
 	d->lmtp_conn = smtp_client_connection_create(lmtp_client,
 		SMTP_PROTOCOL_LMTP, net_ip2addr(ip), port,
 		SMTP_CLIENT_SSL_MODE_NONE, NULL);

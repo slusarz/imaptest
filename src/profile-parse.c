@@ -396,10 +396,6 @@ static void profile_finish(struct profile_parser *parser)
 	struct profile_user *user;
 	unsigned int percentage_count;
 
-	if (parser->profile->pop3_port == 0)
-		parser->profile->pop3_port = POP3_DEFAULT_PORT;
-	if (parser->profile->lmtp_port == 0)
-		parser->profile->lmtp_port = LMTP_DEFAULT_PORT;
 	if (parser->profile->total_user_count == 0)
 		i_fatal("total_user_count setting missing");
 	if (array_count(&parser->clients) == 0)

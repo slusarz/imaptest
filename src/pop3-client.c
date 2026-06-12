@@ -437,7 +437,7 @@ pop3_client_new(unsigned int idx, struct user *user, struct user_client *uc,
 
 	client = i_new(struct pop3_client, 1);
 	client->client.protocol = CLIENT_PROTOCOL_POP3;
-	if (user->profile != NULL)
+	if (user->profile != NULL && user->profile->profile->pop3_port != 0)
 		client->client.port = user->profile->profile->pop3_port;
 	else
 		client->client.port = conf.port != 0 ? conf.port : POP3_DEFAULT_PORT;
