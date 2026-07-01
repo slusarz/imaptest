@@ -173,19 +173,20 @@ static void print_timeout(void *context ATTR_UNUSED)
 
 	if (results_output != NULL)
 		print_results();
-	if ((rowcount++ % 10) == 0) {
+	if (!conf.quiet && (rowcount++ % 10) == 0) {
 		if (rowcount > 1 && results_output == NULL)
 			print_timers();
 		print_header();
 	}
 
-	/* Capture counters BEFORE zeroing (fixes telemetry bug) */
+	/* Capture counters BEFORE zeroing */
 	memcpy(temp_counters, counters, sizeof(temp_counters));
 
 	for (i = 1; i < STATE_COUNT; i++) {
 		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
-		printf("%4d ", counters[i]);
+		if (!conf.quiet)
+			printf("%4d ", counters[i]);
 		total_counters[i] += counters[i];
 		counters[i] = 0;
 	}
@@ -223,7 +224,7 @@ static void print_timeout(void *context ATTR_UNUSED)
 
 	if (results_output != NULL)
 		print_results();
-	if ((rowcount++ % 10) == 0) {
+	if (!conf.quiet && (rowcount++ % 10) == 0) {
 		if (rowcount > 1 && results_output == NULL)
 			print_timers();
 		print_header();
@@ -232,20 +233,23 @@ static void print_timeout(void *context ATTR_UNUSED)
 	for (i = 1; i < STATE_COUNT; i++) {
 		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
-		printf("%4d ", counters[i]);
+		if (!conf.quiet)
+			printf("%4d ", counters[i]);
 		total_counters[i] += counters[i];
 		counters[i] = 0;
 	}
 
-	printf("%3d/%3d", (clients_count - banner_waits), clients_count);
-	if (stall_count > 0)
-		printf(" (%u stalled >%us)", stall_count, SHORT_STALL_PRINT_SECS);
+	if (!conf.quiet) {
+		printf("%3d/%3d", (clients_count - banner_waits), clients_count);
+		if (stall_count > 0)
+			printf(" (%u stalled >%us)", stall_count, SHORT_STALL_PRINT_SECS);
 
-	if (array_count(&clients) < conf.clients_count) {
-		printf(" [%d%%]", array_count(&clients) * 100 /
-		       conf.clients_count);
+		if (array_count(&clients) < conf.clients_count) {
+			printf(" [%d%%]", array_count(&clients) * 100 /
+			       conf.clients_count);
+		}
+		printf("\n");
 	}
-	printf("\n");
 
 #define LONG_STALL_PRINT_SECS 15
 	str = t_str_new(256);
@@ -264,7 +268,8 @@ static void print_timeout(void *context ATTR_UNUSED)
 				print_stalled_imap_client(str, client);
 
 			stalled = TRUE;
-			printf("%s\n", str_c(str));
+			if (!conf.quiet)
+				printf("%s\n", str_c(str));
 			imaptest_event_stall_detected(&ev,
 				c[i]->global_id, c[i]->user->username,
 				stalled_secs, states[c[i]->state].name);
@@ -288,6 +293,9 @@ static void print_timeout(void *context ATTR_UNUSED)
 static void print_total(void)
 {
 	unsigned int i;
+
+	if (conf.quiet)
+		return;
 
 	print_timers();
 	printf("\nTotals:\n");
@@ -531,6 +539,7 @@ static void print_help(void)
 "  own_flags          Track flag ownership\n"
 "  qresync            Enable QRESYNC extension\n"
 "  imap4rev2          Enable IMAP4rev2 and QRESYNC\n"
+	"  quiet              Suppress stdout statistics output\n"
 "  quiet              Suppress stdout statistics output\n"
 "\n"
 "States & Probabilities:\n"
@@ -725,6 +734,11 @@ int main(int argc ATTR_UNUSED, char *argv[])
 			conf.imap4rev2 = TRUE;
 			/* If imap4rev2 is enabled, also enable qresync */
 			conf.qresync = TRUE;
+			continue;
+		}
+
+		if (strcmp(*argv, "quiet") == 0) {
+			conf.quiet = TRUE;
 			continue;
 		}
 
