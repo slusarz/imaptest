@@ -174,6 +174,14 @@ Write rawlog.\* files for all connections containing their input and output.
 
 If set, results are output to the filename provided.
 
+### `exporter`
+
+* Default: <none>
+
+Specifies the exporter driver and its options in the format `driver:options`.
+
+See [Telemetry & Events](/telemetry).
+
 ### `secs`
 
 * Default: \<none\>

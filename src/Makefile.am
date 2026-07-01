@@ -13,6 +13,7 @@ common_sources = \
 	commands.c \
 	imap-client.c \
 	imaptest-events.c \
+	imaptest-exporter.c \
 	imaptest-lmtp.c \
 	mailbox.c \
 	mailbox-source.c \
@@ -50,6 +51,7 @@ noinst_HEADERS = \
 	imap-client.h \
 	imaptest.h \
 	imaptest-events.h \
+	imaptest-exporter.h \
 	imaptest-lmtp.h \
 	mailbox.h \
 	mailbox-source.h \
