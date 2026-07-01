@@ -9,6 +9,8 @@
 #include "istream.h"
 #include "ostream.h"
 #include "home-expand.h"
+#include "mkdir-parents.h"
+#include "eacces-error.h"
 #include "smtp-address.h"
 #include "dsasl-client.h"
 #ifdef STATIC_OPENSSL
@@ -24,7 +26,9 @@
 #include "checkpoint.h"
 #include "commands.h"
 #include "test-exec.h"
+#include "imaptest.h"
 #include "imaptest-lmtp.h"
+#include "imaptest-events.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,8 +45,6 @@ static struct ostream *results_output = NULL;
 static struct timeout *to_stop;
 static unsigned int final_wait_secs;
 
-#define STATE_IS_VISIBLE(state) \
-	(states[i].probability != 0)
 
 void error_quit(void)
 {
@@ -57,7 +59,7 @@ static void print_results_header(void)
 	unsigned int i;
 
 	for (i = 1; i < STATE_COUNT; i++) {
-		if (!STATE_IS_VISIBLE(i))
+		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
 		str_printfa(str, "\t%s count\t%s msecs",
 			    states[i].name, states[i].name);
@@ -72,7 +74,7 @@ static void print_results(void)
 	unsigned int i;
 
 	for (i = 1; i < STATE_COUNT; i++) {
-		if (!STATE_IS_VISIBLE(i))
+		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
 
 		str_printfa(str, "\t%d\t%d\t%lld", counters[i], timer_counts[i], timers[i]);
@@ -91,7 +93,7 @@ static void print_timers(void)
 		printf("\x1b[1m");
 
 	for (i = 1; i < STATE_COUNT; i++) {
-		if (!STATE_IS_VISIBLE(i))
+		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
 
 		printf("%4d ", timer_counts[i] == 0 ? 0 :
@@ -110,7 +112,7 @@ static void print_header(void)
 	bool have_agains = FALSE;
 
 	for (i = 1; i < STATE_COUNT; i++) {
-		if (!STATE_IS_VISIBLE(i))
+		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
 		printf("%s ", states[i].short_name);
 	}
@@ -119,7 +121,7 @@ static void print_header(void)
 		return;
 
 	for (i = 1; i < STATE_COUNT; i++) {
-		if (!STATE_IS_VISIBLE(i))
+		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
 		if (states[i].probability_again != 0)
 			have_agains = TRUE;
@@ -129,7 +131,7 @@ static void print_header(void)
 
 	if (have_agains) {
 		for (i = 1; i < STATE_COUNT; i++) {
-			if (!STATE_IS_VISIBLE(i))
+			if (!STATE_IS_VISIBLE_AT(i))
 				continue;
 			if (states[i].probability_again == 0)
 				printf("     ");
@@ -158,34 +160,41 @@ static void print_stalled_imap_client(string_t *str, struct imap_client *client)
 
 static void print_timeout(void *context ATTR_UNUSED)
 {
+	struct imaptest_event ev;
 #define CLIENT_STALLED_SECS(c) \
 	(((c)->to != NULL || (c)->idling) ? 0 : \
 	 (ioloop_time - (c)->last_io))
+	unsigned int state_count = 0;
 	struct client *const *c;
 	string_t *str;
 	static int rowcount = 0;
 	unsigned int i, count, banner_waits, stall_count;
+	unsigned int temp_counters[STATE_COUNT];
 
 	if (results_output != NULL)
 		print_results();
 	if ((rowcount++ % 10) == 0) {
-		if (rowcount > 1 && results_output == NULL) print_timers();
+		if (rowcount > 1 && results_output == NULL)
+			print_timers();
 		print_header();
 	}
 
+	/* Capture counters BEFORE zeroing (fixes telemetry bug) */
+	memcpy(temp_counters, counters, sizeof(temp_counters));
+
 	for (i = 1; i < STATE_COUNT; i++) {
-		if (!STATE_IS_VISIBLE(i))
+		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
 		printf("%4d ", counters[i]);
 		total_counters[i] += counters[i];
 		counters[i] = 0;
 	}
 
+#define SHORT_STALL_PRINT_SECS 3
 	stalled = FALSE;
 	banner_waits = 0;
 	stall_count = 0;
 
-#define SHORT_STALL_PRINT_SECS 3
 	c = array_get(&clients, &count);
 	for (i = 0; i < count; i++) {
 		if (c[i] == NULL)
@@ -201,6 +210,33 @@ static void print_timeout(void *context ATTR_UNUSED)
 			client_disconnect(c[i]);
 	}
 
+	for (i = 1; i < STATE_COUNT; i++) {
+		if (STATE_IS_VISIBLE_AT(i))
+			state_count++;
+	}
+
+	imaptest_event_interval_stats(&ev,
+		(clients_count - banner_waits), clients_count,
+		stall_count, total_disconnects,
+		state_count,
+		temp_counters, timers, timer_counts);
+
+	if (results_output != NULL)
+		print_results();
+	if ((rowcount++ % 10) == 0) {
+		if (rowcount > 1 && results_output == NULL)
+			print_timers();
+		print_header();
+	}
+
+	for (i = 1; i < STATE_COUNT; i++) {
+		if (!STATE_IS_VISIBLE_AT(i))
+			continue;
+		printf("%4d ", counters[i]);
+		total_counters[i] += counters[i];
+		counters[i] = 0;
+	}
+
 	printf("%3d/%3d", (clients_count - banner_waits), clients_count);
 	if (stall_count > 0)
 		printf(" (%u stalled >%us)", stall_count, SHORT_STALL_PRINT_SECS);
@@ -209,9 +245,9 @@ static void print_timeout(void *context ATTR_UNUSED)
 		printf(" [%d%%]", array_count(&clients) * 100 /
 		       conf.clients_count);
 	}
+	printf("\n");
 
 #define LONG_STALL_PRINT_SECS 15
-	printf("\n");
 	str = t_str_new(256);
 	for (i = 0; i < count; i++) {
 		unsigned int stalled_secs =
@@ -229,6 +265,9 @@ static void print_timeout(void *context ATTR_UNUSED)
 
 			stalled = TRUE;
 			printf("%s\n", str_c(str));
+			imaptest_event_stall_detected(&ev,
+				c[i]->global_id, c[i]->user->username,
+				stalled_secs, states[c[i]->state].name);
 		}
 	}
 
@@ -255,7 +294,7 @@ static void print_total(void)
 	print_header();
 
 	for (i = 1; i < STATE_COUNT; i++) {
-		if (!STATE_IS_VISIBLE(i))
+		if (!STATE_IS_VISIBLE_AT(i))
 			continue;
 
 		total_counters[i] += counters[i];
@@ -478,6 +517,7 @@ static void print_help(void)
 "  checkpoint=SECS    Run checkpoint every SECS seconds\n"
 "  seed=N             Seed for random generator\n"
 "  output=FILE        Output results to file\n"
+"  exporter=DRIVER:OPTS  Select exporter driver and pass options (e.g. jsonl:path=/tmp/events.jsonl)\n"
 "  stalled_disconnect_timeout=SECS  Disconnect stalled clients after SECS\n"
 "\n"
 "Flags & Behavior:\n"
@@ -491,6 +531,7 @@ static void print_help(void)
 "  own_flags          Track flag ownership\n"
 "  qresync            Enable QRESYNC extension\n"
 "  imap4rev2          Enable IMAP4rev2 and QRESYNC\n"
+"  quiet              Suppress stdout statistics output\n"
 "\n"
 "States & Probabilities:\n"
 "  -                  Set all probabilities to 0%% except LOGIN, LOGOUT, SELECT\n"
@@ -814,10 +855,16 @@ int main(int argc ATTR_UNUSED, char *argv[])
 			continue;
 		}
 		if (strcmp(key, "output") == 0) {
-			fd = creat(value, 0600);
+			char *expanded;
+
+			if (validate_output_path(value, &expanded) < 0)
+				i_fatal("Failed to validate output path: %s", value);
+
+			fd = open(expanded, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);
 			if (fd == -1)
-				i_fatal("creat(%s) failed: %m", value);
+				i_fatal("open(%s) failed: %m", expanded);
 			results_output = o_stream_create_fd_file_autoclose(&fd, 0);
+			i_free(expanded);
 			continue;
 		}
 		if (strcmp(key, "ssl") == 0) {
@@ -857,6 +904,7 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	if (results_output != NULL)
 		print_results_header();
 	fix_probabilities();
+
 	mailbox_source = imaptest_mailbox_source();
 	users_init(profile, mailbox_source);
 	mailboxes_init();
@@ -899,4 +947,60 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	io_loop_destroy(&ioloop);
 	lib_deinit();
 	return return_value;
+}
+
+static int
+validate_output_path_ensure_parent(const char *path, const char **error_r)
+{
+	const char *p, *root;
+	struct stat st;
+	mode_t mode = 0700;
+
+	p = strrchr(path, '/');
+	if (p == NULL)
+		return 0; /* No directory component */
+
+	const char *dir = t_strdup_until(path, p);
+
+	if (stat_first_parent(dir, &root, &st) < 0) {
+		if (errno == EACCES)
+			*error_r = eacces_error_get("stat", root);
+		else
+			*error_r = t_strdup_printf("stat(%s) failed: %m", root);
+		return -1;
+	}
+	if ((st.st_mode & S_ISGID) != 0)
+		mode = st.st_mode;
+
+	if (mkdir_parents(dir, mode) < 0 && errno != EEXIST) {
+		if (errno == EACCES)
+			*error_r = eacces_error_get("mkdir_parents", dir);
+		else
+			*error_r = t_strdup_printf("mkdir_parents(%s) failed: %m", dir);
+		return -1;
+	}
+	return 0;
+}
+
+int
+validate_output_path(const char *path, char **expanded_r)
+{
+	const char *expanded;
+	const char *error;
+
+	i_assert(path != NULL);
+	i_assert(expanded_r != NULL);
+
+	/* Expand ~ prefix */
+	expanded = home_expand(path);
+
+	/* Ensure parent directories exist */
+	if (validate_output_path_ensure_parent(expanded, &error) < 0) {
+		i_error("Failed to ensure output directory for '%s': %s",
+			expanded, error);
+		return -1;
+	}
+
+	*expanded_r = i_strdup(expanded);
+	return 0;
 }
