@@ -1,6 +1,6 @@
 bin_PROGRAMS = imaptest
 noinst_PROGRAMS = test-test-parser
-check_PROGRAMS = test-client-stalled
+check_PROGRAMS = test-client-stalled test-jsonl-telemetry
 TESTS = $(check_PROGRAMS)
 
 AM_CPPFLAGS = $(LIBDOVECOT_INCLUDE) -DSTATIC_OPENSSL=1
@@ -14,6 +14,7 @@ common_sources = \
 	imap-client.c \
 	imaptest-events.c \
 	imaptest-exporter.c \
+	imaptest-exporter-jsonl.c \
 	imaptest-lmtp.c \
 	mailbox.c \
 	mailbox-source.c \
@@ -43,6 +44,12 @@ test_client_stalled_SOURCES = \
 test_client_stalled_LDADD = $(imaptest_LDADD)
 test_client_stalled_CFLAGS = $(imaptest_CFLAGS)
 
+test_jsonl_telemetry_SOURCES = \
+	$(common_sources) \
+	test-jsonl-telemetry.c
+test_jsonl_telemetry_LDADD = $(imaptest_LDADD)
+test_jsonl_telemetry_CFLAGS = $(imaptest_CFLAGS)
+
 noinst_HEADERS = \
 	checkpoint.h \
 	client.h \
@@ -52,6 +59,7 @@ noinst_HEADERS = \
 	imaptest.h \
 	imaptest-events.h \
 	imaptest-exporter.h \
+	imaptest-exporter-jsonl.h \
 	imaptest-lmtp.h \
 	mailbox.h \
 	mailbox-source.h \

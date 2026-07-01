@@ -180,6 +180,19 @@ If set, results are output to the filename provided.
 
 Specifies the exporter driver and its options in the format `driver:options`.
 
+Built-in drivers:
+
+| Driver | Options Format | Description |
+|--------|---------------|-------------|
+| `jsonl` | `[path=]/path/to/file` | Export structured event telemetry in JSON Lines format |
+
+Examples:
+
+```
+exporter=jsonl:path=/tmp/events.jsonl
+exporter=jsonl:/tmp/events.jsonl
+```
+
 See [Telemetry & Events](/telemetry).
 
 ### `secs`

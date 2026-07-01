@@ -3,6 +3,7 @@
 #include "lib.h"
 #include "str.h"
 #include "imaptest-events.h"
+#include "imaptest-exporter-jsonl.h"
 
 void
 imaptest_event_cmd_completed(struct imaptest_event *ev,
@@ -165,8 +166,4 @@ imaptest_event_checkpoint_error(struct imaptest_event *ev,
 	};
 
 	imaptest_event_generate(ev);
-}
-
-void imaptest_event_generate(const struct imaptest_event *ev ATTR_UNUSED)
-{
 }

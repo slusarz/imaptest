@@ -30,6 +30,7 @@
 #include "imaptest-lmtp.h"
 #include "imaptest-events.h"
 #include "imaptest-exporter.h"
+#include "imaptest-exporter-jsonl.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -526,7 +527,6 @@ static void print_help(void)
 "  checkpoint=SECS    Run checkpoint every SECS seconds\n"
 "  seed=N             Seed for random generator\n"
 "  output=FILE        Output results to file\n"
-	"  exporter=DRIVER:OPTS  Select exporter driver and pass options (e.g. jsonl:path=/tmp/events.jsonl)\n"
 "  exporter=DRIVER:OPTS  Select exporter driver and pass options (e.g. jsonl:path=/tmp/events.jsonl)\n"
 "  stalled_disconnect_timeout=SECS  Disconnect stalled clients after SECS\n"
 "\n"
@@ -541,7 +541,6 @@ static void print_help(void)
 "  own_flags          Track flag ownership\n"
 "  qresync            Enable QRESYNC extension\n"
 "  imap4rev2          Enable IMAP4rev2 and QRESYNC\n"
-	"  quiet              Suppress stdout statistics output\n"
 "  quiet              Suppress stdout statistics output\n"
 "\n"
 "States & Probabilities:\n"
@@ -738,7 +737,6 @@ int main(int argc ATTR_UNUSED, char *argv[])
 			conf.qresync = TRUE;
 			continue;
 		}
-
 		if (strcmp(*argv, "quiet") == 0) {
 			conf.quiet = TRUE;
 			continue;
@@ -870,10 +868,6 @@ int main(int argc ATTR_UNUSED, char *argv[])
 			conf.ssl_set.skip_crl_check = TRUE;
 			continue;
 		}
-		if (strcmp(key, "exporter") == 0) {
-			conf.exporter = i_strdup(value);
-			continue;
-		}
 		if (strcmp(key, "output") == 0) {
 			char *expanded;
 
@@ -885,6 +879,10 @@ int main(int argc ATTR_UNUSED, char *argv[])
 				i_fatal("open(%s) failed: %m", expanded);
 			results_output = o_stream_create_fd_file_autoclose(&fd, 0);
 			i_free(expanded);
+			continue;
+		}
+		if (strcmp(key, "exporter") == 0) {
+			conf.exporter = i_strdup(value);
 			continue;
 		}
 		if (strcmp(key, "ssl") == 0) {
@@ -925,7 +923,9 @@ int main(int argc ATTR_UNUSED, char *argv[])
 		print_results_header();
 	fix_probabilities();
 
+	/* Register built-in exporters, then initialize */
 	if (conf.exporter != NULL) {
+		imaptest_exporter_jsonl_register();
 		if (imaptest_exporter_init(conf.exporter) < 0)
 			i_error("TELEMETRY DISABLED: Failed to initialize exporter");
 	}
@@ -971,8 +971,6 @@ int main(int argc ATTR_UNUSED, char *argv[])
 	lib_signals_deinit();
 	io_loop_destroy(&ioloop);
 	imaptest_exporter_deinit();
-	if (conf.exporter != NULL)
-		p_free_internal(default_pool, (void *)conf.exporter);
 	lib_deinit();
 	return return_value;
 }
