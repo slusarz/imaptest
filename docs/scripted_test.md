@@ -148,7 +148,40 @@ All commands in a pipelined group MUST use the same connection.
 1 tag2 create ${mailbox}2
 1 tag1 ok
 1 tag2 ok
+```
 
+## Multiline IMAP Literals
+
+Commands and expected server responses can include multiline IMAP literals using <code v-pre>{{{</code> and <code v-pre>}}}</code> block delimiters.
+
+When a line ends with <code v-pre>{{{</code>, all subsequent lines up to <code v-pre>}}}</code> are captured as literal data. The test parser automatically calculates the byte length of the content and replaces the block with standard IMAP literal syntax (`{length}\r\n`).
+
+* **Standard Literals (<code v-pre>{{{</code>)**: Formats the literal as a standard IMAP literal (`{<size>}\r\n`).
+* **Binary Literals (<code v-pre>~{{{</code>)**: If preceded by a tilde (<code v-pre>~{{{</code>), the literal is formatted as a binary IMAP literal (`~{<size>}\r\n`).
+
+### Examples
+
+#### Sending a Literal Command
+
+```
+ok append $mailbox (\seen \flagged) catenate (text {{{
+From: foo@example.com
+
+Hello world
+
+}}})
+```
+
+#### Expecting a Literal Response
+
+```
+ok fetch 1 (uid body.peek[])
+* 1 fetch (uid $uid body[] {{{
+From: foo@example.com
+
+Hello world
+
+}}})
 ```
 
 ## Variables
